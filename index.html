@@ -565,10 +565,34 @@ function beep(freq, dur, gain=0.15, type='square'){
 }
 function kick(){ beep(90, 0.18, 0.35, 'sine'); }
 function hat(){ beep(2200, 0.03, 0.05, 'square'); }
+function snare(){ beep(180, 0.10, 0.2, 'square'); beep(1500, 0.05, 0.07, 'square'); }
+function bass(freq){ beep(freq, 0.22, 0.25, 'sawtooth'); }
+function lead(freq){ beep(freq, 0.15, 0.1, 'triangle'); }
 function hit(){ beep(140, 0.12, 0.25, 'sawtooth'); }
 function stomp(){ beep(60, 0.35, 0.4, 'sine'); }
 function win(){ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.3,0.2,'sine'), i*120)); }
 function lose(){ [300,250,200,150].forEach((f,i)=>setTimeout(()=>beep(f,0.35,0.25,'sawtooth'), i*150)); }
+
+// ---------- music — a real little arrangement instead of just kick/hat: a
+// four-on-the-floor kick with a backbeat snare, a bassline that moves to the
+// fifth on beat 3, and a melodic arpeggio riff that climbs as danger rises.
+// each boss plays in its own key, so they each have a distinct musical feel. ----------
+const SCALE = [0, 3, 5, 7, 10, 12]; // minor pentatonic across one octave
+const ARP_PATTERN = [0,2,4,2, 1,3,5,3, 0,2,4,5, 3,1,0,2]; // 16-step riff, scale-degree indices
+function noteFreq(root, semitones){ return root * Math.pow(2, semitones/12); }
+function playBeatMusic(beatIdx, root, t){
+  const stepIn4 = beatIdx % 4;
+  if(stepIn4 === 0){ kick(); bass(root); }
+  else if(stepIn4 === 2){ snare(); bass(noteFreq(root, 7)); } // bass steps up to the fifth for movement
+  else {
+    hat();
+    if(t > 0.5 && Math.random() < 0.4) setTimeout(hat, beatMs*0.25); // extra hat flourish once things get dangerous
+  }
+  // the lead riff always plays — gives the beat an actual melody, not just drums.
+  // pitch climbs slightly as the fight escalates, for rising tension.
+  const degree = ARP_PATTERN[beatIdx % ARP_PATTERN.length];
+  lead(noteFreq(root * 2 * (1 + t*0.12), SCALE[degree]));
+}
 
 // ---------- beat clock ----------
 const BPM = 128;
@@ -2029,25 +2053,25 @@ const BOSS_PROFILES = {
   broccoli: {
     name: 'BROCCOLI', maxHp: 100, drain: 100/85, wanderSpeed: 46,
     speedRange: [1.15, 2.3], offBeatRange: [0.12, 0.97], doubleEdges: [0.42, 1.0],
-    colorFrom: '#6cff8f', colorTo: '#ff5c7a',
+    colorFrom: '#6cff8f', colorTo: '#ff5c7a', rootFreq: 220.00, // A3 — brightest key, easiest boss
     sequence: PATTERN_SEQUENCE, columnDefs: BROCCOLI_COLUMN_DEFS,
   },
   carrot: {
     name: 'KUNG FU CARROT', maxHp: 130, drain: 130/78, wanderSpeed: 82,
     speedRange: [1.4, 2.85], offBeatRange: [0.3, 1.0], doubleEdges: [0.22, 0.9],
-    colorFrom: '#ffb347', colorTo: '#ff3b3b',
+    colorFrom: '#ffb347', colorTo: '#ff3b3b', rootFreq: 196.00, // G3
     sequence: CARROT_PATTERN_SEQUENCE, columnDefs: CARROT_COLUMN_DEFS,
   },
   coleslaw: {
     name: 'COLESLAW', maxHp: 165, drain: 165/76, wanderSpeed: 100,
     speedRange: [1.65, 3.2], offBeatRange: [0.45, 1.0], doubleEdges: [0.1, 0.75],
-    colorFrom: '#f2f0e6', colorTo: '#8a2be2',
+    colorFrom: '#f2f0e6', colorTo: '#8a2be2', rootFreq: 174.61, // F3
     sequence: COLESLAW_PATTERN_SEQUENCE, columnDefs: COLESLAW_COLUMN_DEFS,
   },
   ranch: {
     name: 'RANCH', maxHp: 260, drain: 260/68, wanderSpeed: 152,
     speedRange: [2.3, 4.0], offBeatRange: [0.75, 1.0], doubleEdges: [0.0, 0.4],
-    colorFrom: '#fff4d6', colorTo: '#8a0000',
+    colorFrom: '#fff4d6', colorTo: '#8a0000', rootFreq: 130.81, // C3 — lowest, most ominous key
     sequence: RANCH_PATTERN_SEQUENCE, columnDefs: RANCH_COLUMN_DEFS,
   },
 };
@@ -2076,9 +2100,10 @@ function onBeat(){
 
   const diff = getDifficulty();
   const isDownbeat = beatCount % 4 === 0;
+  const root = BOSS_PROFILES[currentBossId].rootFreq || 196;
+  playBeatMusic(beatCount, root, diff.t); // full drum + bass + lead arrangement, not just kick/hat
 
   if(isDownbeat){
-    kick();
     triggerPatternFrom(diff, boss);
     if(youWantToDieAh) triggerPatternFrom(diff, boss2);
     if(Math.random() < diff.doubleChance){
@@ -2090,7 +2115,6 @@ function onBeat(){
     kickJelly(14 + diff.t*14); // jiggle ramps smoothly with danger too
     triggerShake(2 + diff.t*4); // subtle shake pulse on the beat, bigger as the fight escalates
   } else {
-    hat();
     kickJelly(5);
     if(Math.random() < diff.offBeatChance){
       triggerPatternFrom(diff, boss);
