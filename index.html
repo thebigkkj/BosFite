@@ -348,6 +348,10 @@
           <span class="levelNum">03</span>
           <span class="levelName">COLESLAW</span>
         </button>
+        <button class="levelCard" data-level="ranch">
+          <span class="levelNum">04</span>
+          <span class="levelName">RANCH</span>
+        </button>
       </div>
     </div>
     <div id="startScreen">
@@ -412,6 +416,7 @@
           <option value="broccoli">BROCCOLI</option>
           <option value="carrot">KUNG FU CARROT</option>
           <option value="coleslaw">COLESLAW</option>
+          <option value="ranch">RANCH</option>
         </select>
         <input type="number" id="adminPercentInput" min="0" max="100" value="50">
         <span>%</span>
@@ -456,8 +461,8 @@ function formatDuration(ms){
   const s = totalSec%60;
   return (h>0 ? h+'h ' : '') + m+'m ' + s+'s';
 }
-function logFight(bossName, victory, durationS, hits){
-  gameLogs.push({ boss: bossName, result: victory ? 'WIN' : 'LOSS', duration: durationS, hits, at: Date.now() });
+function logFight(bossName, victory, durationS, hits, rank){
+  gameLogs.push({ boss: bossName, result: victory ? 'WIN' : 'LOSS', duration: durationS, hits, rank, at: Date.now() });
   if(gameLogs.length > 200) gameLogs = gameLogs.slice(-200); // keep it from growing forever
   saveAdminData();
 }
@@ -473,7 +478,8 @@ function renderAdminPanel(){
     const row = document.createElement('div');
     row.className = 'adminLogRow';
     const when = new Date(log.at).toLocaleString();
-    row.textContent = `${log.boss} — ${log.result} — ${log.duration}s — ${log.hits} hit${log.hits===1?'':'s'} — ${when}`;
+    const rankPart = log.rank ? ` — RANK ${log.rank}` : '';
+    row.textContent = `${log.boss} — ${log.result} — ${log.duration}s — ${log.hits} hit${log.hits===1?'':'s'}${rankPart} — ${when}`;
     listEl.appendChild(row);
   });
 }
@@ -502,14 +508,16 @@ document.getElementById('adminClearLogs').addEventListener('click', () => {
   renderAdminPanel();
 });
 document.getElementById('adminResetProgress').addEventListener('click', () => {
-  if(!confirm('Reset ALL saved progress? This wipes every checkpoint, the full fight log, and total playtime. This cannot be undone.')) return;
+  if(!confirm('Reset ALL saved progress? This wipes every checkpoint, best rank, the full fight log, and total playtime. This cannot be undone.')) return;
   checkpoints = {};
   gameLogs = [];
   totalActiveMs = 0;
+  bestRanks = {};
   try {
     localStorage.removeItem('bf_checkpoints');
     localStorage.removeItem('bf_logs');
     localStorage.removeItem('bf_totalActiveMs');
+    localStorage.removeItem('bf_bestRanks');
   } catch(e) { /* ignore */ }
   updateStartButtons();
   renderAdminPanel();
@@ -985,6 +993,7 @@ const boss = {
   florets: [], // {ox, oy, r} — broccoli
   leaves: [],  // {ox, oy, r} — carrot
   shreds: [],  // {ox, oy, len, rot, color} — coleslaw
+  ranchDrips: [], // {ox, phase, speed, len} — ranch
   phase: 1,
 };
 
@@ -1023,6 +1032,30 @@ function updateStartButtons(){
   const mark = document.getElementById('checkpointMark');
   if(mark) mark.style.left = (cp.has ? (1 - cp.hp) * 100 : 50) + '%';
 }
+
+// ---------- ranking — S/A/B/C/D per fight, plus the best ever earned per
+// boss, persisted alongside checkpoints ----------
+const RANK_ORDER = { D:0, C:1, B:2, A:3, S:4 };
+let bestRanks = {};
+try { bestRanks = JSON.parse(localStorage.getItem('bf_bestRanks') || '{}'); } catch(e) { /* ignore */ }
+function saveBestRanks(){
+  try { localStorage.setItem('bf_bestRanks', JSON.stringify(bestRanks)); } catch(e) { /* ignore */ }
+}
+function calcRank(victory, fromCheckpoint, hits){
+  if(!victory) return 'D';
+  if(hits <= 0) return fromCheckpoint ? 'A' : 'S'; // S is exclusive to a full 0%-start, no-hit clear
+  if(hits === 1) return 'B';
+  return 'C'; // 2+ hits (max survivable without hardmode ending the run)
+}
+function updateBestRank(bossId, rank){
+  const cur = bestRanks[bossId];
+  if(!cur || RANK_ORDER[rank] > RANK_ORDER[cur]){
+    bestRanks[bossId] = rank;
+    saveBestRanks();
+  }
+  return bestRanks[bossId];
+}
+
 function checkCheckpoint(){
   const cp = getCheckpoint(currentBossId);
   if(!cp.has && boss.hp <= boss.maxHp * 0.5){
@@ -1084,6 +1117,20 @@ function buildColeslaw(){
   }
 }
 
+// build ranch shape: a dripping bottle-blob, drooling constantly
+function buildRanch(){
+  boss.ranchDrips = [];
+  const n = 10;
+  for(let i=0; i<n; i++){
+    boss.ranchDrips.push({
+      ox: (i/(n-1) - 0.5) * 100,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.7 + Math.random()*0.6,
+      len: 14 + Math.random()*18
+    });
+  }
+}
+
 // ---------- boss wandering — slowly drifts to a new spot every few seconds ----------
 const bossWander = { targetX: boss.x, targetY: boss.y, timer: 0 };
 const boss2 = { x: W/2, y: H/2 }; // second boss body — only moved/drawn/attacked when YOUWANTTODIEAH is on
@@ -1138,6 +1185,13 @@ const COLESLAW_COLUMN_DEFS = [
   { atT: 0.15, x: W*0.15, y: H*0.15, w: W*0.08, h: H*0.26 },
   { atT: 0.35, x: W*0.78, y: H*0.58, w: W*0.08, h: H*0.28 },
   { atT: 0.6,  x: W*0.45, y: H*0.10, w: W*0.08, h: H*0.24 },
+];
+const RANCH_COLUMN_DEFS = [
+  { atT: 0.05, x: W*0.15, y: H*0.60, w: W*0.08, h: H*0.28 },
+  { atT: 0.18, x: W*0.78, y: H*0.12, w: W*0.08, h: H*0.28 },
+  { atT: 0.32, x: W*0.45, y: H*0.62, w: W*0.08, h: H*0.26 },
+  { atT: 0.48, x: W*0.20, y: H*0.10, w: W*0.08, h: H*0.24 },
+  { atT: 0.65, x: W*0.65, y: H*0.65, w: W*0.08, h: H*0.24 },
 ];
 function maybeSpawnColumn(t){
   const defs = BOSS_PROFILES[currentBossId].columnDefs;
@@ -1633,6 +1687,30 @@ function spawnTossUp(color, entity){
   spawnLunge(color, entity);
   setTimeout(() => { if(running) spawnLunge(color, entity); }, LUNGE_TELEGRAPH + 200);
 }
+// ranch's signature move — the true final-boss "everything at once": a lunge,
+// a chi blast right as it lands, and fry blaster cannons opening up on the map
+// simultaneously. every other boss's biggest moves happen one at a time; this
+// is the only attack in the game that stacks several of them together.
+function spawnFullSend(color, speedMult, entity){
+  entity = entity || boss;
+  const angle = Math.random() * Math.PI * 2;
+  const dist = Math.min(W, H) * 0.5;
+  const margin = 140;
+  const targetX = Math.max(margin, Math.min(W-margin, entity.x + Math.cos(angle)*dist));
+  const targetY = Math.max(margin, Math.min(H-margin, entity.y + Math.sin(angle)*dist));
+  lungeWarnings.push({ x1: entity.x, y1: entity.y, x2: targetX, y2: targetY, timer: LUNGE_TELEGRAPH, color });
+  spawnFryBlaster(color); // cannons start charging on the map right away, independent of the lunge
+  setTimeout(() => {
+    if(!running) return;
+    entity.x = targetX; entity.y = targetY;
+    if(entity === boss){ bossWander.targetX = targetX; bossWander.targetY = targetY; bossWander.timer = 1400; }
+    else { bossWander2.targetX = targetX; bossWander2.targetY = targetY; bossWander2.timer = 1400; }
+    if(entity === boss) lungeHazardTimer = LUNGE_HAZARD_TIME; else lungeHazardTimer2 = LUNGE_HAZARD_TIME;
+    triggerShake(22);
+    stomp();
+    spawnChiBlast(color, speedMult, targetX, targetY); // the blast fires the instant it lands
+  }, LUNGE_TELEGRAPH);
+}
 function checkLungeHazard(hx, hy){
   if(player.invuln <= 0 && !player.dashing && player.dashGrace <= 0){
     const d = Math.hypot(player.x - hx, player.y - hy);
@@ -1806,6 +1884,57 @@ function spawnSplatterBombs(color, speedMult){
   }
 }
 
+// ---------- ranch-exclusive: overflow (double-wave splatter, denser than the
+// base splatter bombs) and pincer (walls closing in from both edges at once,
+// one safe lane) — new attack shapes, not reused from anything else ----------
+function spawnOverflow(color, speedMult){
+  const margin = 140;
+  const fireWave = () => {
+    for(let n=0; n<4; n++){
+      const x = margin + Math.random()*(W-margin*2);
+      const y = margin + Math.random()*(H-margin*2);
+      queueSplatter({ x, y, radius: 50, color, spawn: () => spawnSplatterBurst(x, y, color, speedMult*1.15) });
+    }
+  };
+  fireWave();
+  setTimeout(() => { if(running) fireWave(); }, 550); // second wave right on top of the first
+}
+function spawnPincer(color, speedMult){
+  const rows = 8;
+  const gap = H/rows;
+  const gapRow = Math.floor(Math.random()*rows); // the one safe horizontal lane
+  queueMarker(22, H/2, 0, color, () => {});
+  queueMarker(W-22, H/2, Math.PI, color, () => {});
+  setTimeout(() => {
+    if(!running) return;
+    for(let i=0; i<rows; i++){
+      if(i === gapRow) continue;
+      const y = gap*i + gap/2;
+      bullets.push({x:-24, y, vx: 3.6*speedMult, vy:0, r:13, color, rect:true, w:24, h:gap*0.85});
+      bullets.push({x:W+24, y, vx:-3.6*speedMult, vy:0, r:13, color, rect:true, w:24, h:gap*0.85});
+    }
+  }, MARKER_TELEGRAPH_TIME);
+}
+
+// ---------- passive drip — ranch's cosmetic drips become a real hazard.
+// runs the entire fight independent of the attack sequence, active from the
+// very first frame, gets faster as HP drops. this is what keeps you on edge
+// even when nothing else is currently firing. ----------
+let passiveDripTimer = 0;
+function updatePassiveDrip(dt){
+  if(currentBossId !== 'ranch' || !running) return;
+  passiveDripTimer -= dt;
+  if(passiveDripTimer <= 0){
+    const x = 30 + Math.random()*(W-60);
+    const size = 6 + Math.random()*9;
+    const speed = 2.4 + Math.random()*2.2;
+    const danger = boss.hp/boss.maxHp < 0.35;
+    bullets.push({x, y:-14, vx:0, vy:speed, r:size, color: danger ? '#ff3b3b' : '#fff4d6'});
+    const t = 1 - boss.hp/boss.maxHp;
+    passiveDripTimer = lerp(480, 150, t) + Math.random()*110; // never stops, just speeds up
+  }
+}
+
 // ---------- edge barrage — fires from random points around the map's edges
 // instead of the boss, so attacks come from every angle of the arena ----------
 function randomEdgePoint(){
@@ -1871,13 +2000,31 @@ const COLESLAW_PATTERN_SEQUENCE = [
   'fryblaster','splatter','tossup','chiblast','drizzle','fryblaster','fastbeam','tossup','splatter','bowltoss',
   'fryblaster','chiblast','tossup','fastbeam','drizzle','fryblaster','tossup','splatter','chiblast','bowltoss'
 ];
+// ranch's routine — pure bullet hell. built specifically for players who
+// cleared coleslaw (even in YOUWANTTODIEAH) and got comfortable. no opener,
+// no easy moves at all, and now leans hard on its two exclusive moves —
+// overflow (double-wave splatter) and pincer (walls closing from both
+// edges) — on top of full send, the only move that stacks several
+// ultimates together instead of one at a time. a constant passive drip
+// from the top of the screen runs the entire fight on its own clock,
+// independent of this sequence, so there's never a real lull.
+const RANCH_PATTERN_SEQUENCE = [
+  'fullsend','pincer','fastbeam','overflow','edge','chiblast','fullsend','pincer','splatter','tossup',
+  'fryblaster','overflow','edge','chiblast','fullsend','pincer','fastbeam','splatter','overflow','tossup',
+  'fullsend','edge','pincer','chiblast','overflow','fastbeam','splatter','fullsend','pincer','fryblaster',
+  'overflow','tossup','edge','fullsend','pincer','chiblast','fastbeam','overflow','splatter','fullsend',
+  'pincer','tossup','edge','overflow','fullsend','chiblast','pincer','fastbeam','overflow','fullsend'
+];
 let patternIndex = 0;
 
 // per-boss tuning — carrot is meaningfully harder across every axis: faster
 // bullets sooner, bonus attacks kick in immediately, doubles start almost
 // right away, more HP to get through, and it wanders faster so it's harder
 // to predict where the next attack even comes from. coleslaw pushes every
-// one of those numbers further still — it's the hardest fight in the game.
+// one of those numbers further still. ranch goes further again — every
+// number here is pushed well past where coleslaw's ever gets, from turn one,
+// on top of a faster attack cadence (see the beat-clock override in the main
+// loop) and the always-on passive drip — true bullet hell.
 const BOSS_PROFILES = {
   broccoli: {
     name: 'BROCCOLI', maxHp: 100, drain: 100/85, wanderSpeed: 46,
@@ -1896,6 +2043,12 @@ const BOSS_PROFILES = {
     speedRange: [1.65, 3.2], offBeatRange: [0.45, 1.0], doubleEdges: [0.1, 0.75],
     colorFrom: '#f2f0e6', colorTo: '#8a2be2',
     sequence: COLESLAW_PATTERN_SEQUENCE, columnDefs: COLESLAW_COLUMN_DEFS,
+  },
+  ranch: {
+    name: 'RANCH', maxHp: 260, drain: 260/68, wanderSpeed: 152,
+    speedRange: [2.3, 4.0], offBeatRange: [0.75, 1.0], doubleEdges: [0.0, 0.4],
+    colorFrom: '#fff4d6', colorTo: '#8a0000',
+    sequence: RANCH_PATTERN_SEQUENCE, columnDefs: RANCH_COLUMN_DEFS,
   },
 };
 
@@ -2055,6 +2208,12 @@ function triggerPattern(diff, entity){
     spawnMayoDrizzle(color);
   } else if(p === 'bowltoss'){
     spawnBowlToss(color, speedMult);
+  } else if(p === 'fullsend'){
+    spawnFullSend(color, speedMult, entity); // ranch's ultimate — lunge + chi blast + fry cannons, all at once
+  } else if(p === 'overflow'){
+    spawnOverflow(color, speedMult);
+  } else if(p === 'pincer'){
+    spawnPincer(color, speedMult);
   }
 }
 
@@ -2246,14 +2405,15 @@ function endGame(victory){
   wedgeTelegraphs = [];
   markerTelegraphs = [];
   const elapsedS = ((performance.now() - fightStartTime) / 1000).toFixed(1);
-  logFight(BOSS_PROFILES[currentBossId].name, victory, elapsedS, hitsTaken);
+  const rank = calcRank(victory, fightStartedFromCheckpoint, hitsTaken);
+  const bestRank = updateBestRank(currentBossId, rank);
+  logFight(BOSS_PROFILES[currentBossId].name, victory, elapsedS, hitsTaken, rank);
   const statsEl = document.getElementById('resultStats');
   if(statsEl){
     if(victory){
-      const rank = hitsTaken === 0 ? 'S' : hitsTaken === 1 ? 'A' : 'B';
-      statsEl.textContent = `TIME ${elapsedS}s   //   HITS TAKEN ${hitsTaken}/2   //   RANK ${rank}`;
+      statsEl.textContent = `TIME ${elapsedS}s   //   HITS TAKEN ${hitsTaken}   //   RANK ${rank}   (BEST: ${bestRank})`;
     } else {
-      statsEl.textContent = `SURVIVED ${elapsedS}s`;
+      statsEl.textContent = `SURVIVED ${elapsedS}s   //   RANK ${rank}   (BEST: ${bestRank})`;
     }
   }
   if(victory){
@@ -2292,6 +2452,7 @@ function drawGrid(t){
 function drawBoss(t){
   const drawFn = currentBossId === 'carrot' ? drawCarrotBoss
     : currentBossId === 'coleslaw' ? drawColeslawBoss
+    : currentBossId === 'ranch' ? drawRanchBoss
     : drawBroccoliBoss;
   drawFn(t);
   if(youWantToDieAh){
@@ -2462,6 +2623,62 @@ function drawColeslawBoss(t){
   ctx.stroke();
 }
 
+function drawRanchBoss(t){
+  const bob = Math.sin(t/150) * 7; // the most agitated bob in the game
+  const by = boss.y + bob;
+  const danger = boss.hp/boss.maxHp < 0.35;
+
+  // bottle body — a tall creamy blob, narrowing toward a cap
+  ctx.save();
+  ctx.translate(boss.x, by);
+  ctx.fillStyle = danger ? '#4a0000' : '#fff4d6';
+  ctx.strokeStyle = danger ? '#ff3b3b' : '#d8c68a';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-30, -70);
+  ctx.lineTo(30, -70);
+  ctx.lineTo(46, -20);
+  ctx.quadraticCurveTo(56, 50, 0, 78);
+  ctx.quadraticCurveTo(-56, 50, -46, -20);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // cap
+  ctx.fillStyle = danger ? '#8a0000' : '#c9a227';
+  ctx.fillRect(-22, -88, 44, 20);
+  ctx.strokeRect(-22, -88, 44, 20);
+  ctx.restore();
+
+  // constant drips falling from the bottom edge — each on its own loop/phase
+  boss.ranchDrips.forEach(d => {
+    const cyc = (t/700 * d.speed + d.phase) % (Math.PI*2);
+    const fall = (cyc / (Math.PI*2)); // 0..1 progress of this drip's fall cycle
+    const dx = boss.x + d.ox;
+    const dy = by + 78 + fall * 70;
+    const alpha = 1 - fall;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.fillStyle = danger ? '#ff3b3b' : '#fff4d6';
+    ctx.beginPath();
+    ctx.ellipse(dx, dy, 5, d.len*0.4, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  // angry eyes, deepening red as it takes damage
+  ctx.fillStyle = '#0a0a12';
+  ctx.beginPath();
+  ctx.arc(boss.x-15, by-30, 5, 0, Math.PI*2);
+  ctx.arc(boss.x+15, by-30, 5, 0, Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle = '#0a0a12';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(boss.x-25, by-42); ctx.lineTo(boss.x-9, by-35);
+  ctx.moveTo(boss.x+25, by-42); ctx.lineTo(boss.x+9, by-35);
+  ctx.stroke();
+}
+
 function polygon(r, sides){
   ctx.beginPath();
   for(let i=0;i<sides;i++){
@@ -2617,7 +2834,8 @@ function loop(t){
 
   if(running && !paused){
     totalActiveMs += rawDt; // only counts while an actual fight is unpaused and running
-    if(t - lastBeatTime >= beatMs){
+    const activeBeatMs = currentBossId === 'ranch' ? beatMs * 0.68 : beatMs; // ranch's attacks come noticeably faster
+    if(t - lastBeatTime >= activeBeatMs){
       lastBeatTime = t;
       onBeat();
     }
@@ -2633,6 +2851,7 @@ function loop(t){
     updateRingTelegraphs(dt);
     updateWedgeTelegraphs(dt);
     updateMarkerTelegraphs(dt);
+    updatePassiveDrip(dt);
     updateBossAuto(dt);
   }
   updatePlayerFragments(frameDt); // keeps animating even after death/running stops, ignores hit-stop
@@ -2676,6 +2895,10 @@ const BRIEFINGS = {
   coleslaw: {
     title: 'COLESLAW',
     text: `BOSS FIGHT 03 — the hardest fight in the game, by a wide margin, but every single move gives some kind of warning first: rings and chi blasts get a pulsing ring outline that expands as it charges, bowl toss gets an outlined wedge showing its whole spread, mayo drizzle and edge barrages get small directional arrows before they fire, and french fry blaster cannons telegraph a straight line down their barrel. no easy opener at all though: it opens straight into french fry blaster cannons — they appear, telegraph, then fire one hard blast forward, never toward you specifically — and edge barrages, then layers in toss-up almost immediately: two flying-kick lunges back to back, so the boss's own body becomes a hazard twice in a row with barely any time to react between them. mayo drizzle rains uneven droplets of random size and speed that never fall in sync, and bowl toss goes the other way entirely — a handful of huge, slow chunks instead of many small ones. everything else — chi blasts, fast beam barrages, splatter bombs — comes faster and more often than either broccoli or carrot ever managed. 165 HP, the fastest wander speed of any boss, and three obstacle columns instead of one or two. same rules: nothing tracks you, checkpoint at 50%, 3 hits and you're done. good luck.`
+  },
+  ranch: {
+    title: 'RANCH',
+    text: `BOSS FIGHT 04 — if you beat coleslaw, even in YOUWANTTODIEAH, and thought you were done: you weren't. this is pure bullet hell, built for exactly that complacency. a passive drip falls from the top of the screen for the ENTIRE fight, completely independent of every other attack, getting faster as HP drops — there is no lull, not even in the first second. its signature is full send: the only attack in the game that stacks several ultimates together at once — a flying lunge, a huge chi blast the instant it lands, and french fry cannons opening up elsewhere on the map, simultaneously. overflow doubles up splatter bombs into two waves almost on top of each other, and pincer closes walls in from both screen edges at once with only one safe lane between them. 260 HP, the fastest wander speed and fastest attack cadence in the game, and five obstacle columns closing the arena down faster than anything before it. same baseline rules — nothing tracks you, checkpoint at 50% — but don't expect that to feel like much of a mercy here. 3 hits and you're done. good luck. you're going to need it.`
   }
 };
 document.querySelectorAll('.levelCard:not(.locked)').forEach(card => {
@@ -2705,6 +2928,7 @@ document.getElementById('backToMenu').addEventListener('click', () => {
 // ---------- start / reset ----------
 let fightStartTime = 0;
 let hitsTaken = 0;
+let fightStartedFromCheckpoint = false;
 function startFight(fromCheckpoint){
   if(!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
   paused = false;
@@ -2712,12 +2936,15 @@ function startFight(fromCheckpoint){
   document.getElementById('pausePanel').style.display = 'none';
   boss.maxHp = BOSS_PROFILES[currentBossId].maxHp;
   const cp = getCheckpoint(currentBossId);
-  boss.hp = (fromCheckpoint && cp.has) ? boss.maxHp * cp.hp : boss.maxHp;
+  fightStartedFromCheckpoint = !!(fromCheckpoint && cp.has); // used for ranking when this fight ends
+  boss.hp = fightStartedFromCheckpoint ? boss.maxHp * cp.hp : boss.maxHp;
   const hpMarkerInit = document.getElementById('hpMarker');
   if(hpMarkerInit) hpMarkerInit.style.left = ((1 - boss.hp/boss.maxHp) * 100) + '%'; // avoid a one-frame flash at 100%
   if(currentBossId === 'carrot') buildCarrot();
   else if(currentBossId === 'coleslaw') buildColeslaw();
+  else if(currentBossId === 'ranch') buildRanch();
   else buildBroccoli();
+  passiveDripTimer = 250; // ranch's passive drip starts almost immediately — "on your toes from 1% in"
   bossFacing = -Math.PI/2;
   lungeWarnings = [];
   lungeHazardTimer = 0;
