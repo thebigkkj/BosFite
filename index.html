@@ -348,8 +348,12 @@
           <span class="levelNum">03</span>
           <span class="levelName">COLESLAW</span>
         </button>
-        <button class="levelCard" data-level="ranch">
+        <button class="levelCard" data-level="watermelon">
           <span class="levelNum">04</span>
+          <span class="levelName">WATERMELON</span>
+        </button>
+        <button class="levelCard" data-level="ranch">
+          <span class="levelNum">05</span>
           <span class="levelName">RANCH</span>
         </button>
       </div>
@@ -387,6 +391,11 @@
         <input type="checkbox" id="doubleBossToggle">
       </label>
       <p class="settingsNote">off by default. fight two of the same boss at once — both wander independently and both throw attacks. changes take effect on your next fight start.</p>
+      <label class="toggleRow">
+        <span>NO MORE MISTER NICE GUY</span>
+        <input type="checkbox" id="niceGuyToggle">
+      </label>
+      <p class="settingsNote">off by default. triples the bullet count on every burst-style attack across all bosses — rings, spreads, chi blasts, jabs, kicks, splatters, and more all come 3x as dense.</p>
       <div class="drippyWrap">
         <label class="toggleRow">
           <span>DRIP</span>
@@ -416,6 +425,7 @@
           <option value="broccoli">BROCCOLI</option>
           <option value="carrot">KUNG FU CARROT</option>
           <option value="coleslaw">COLESLAW</option>
+          <option value="watermelon">WATERMELON</option>
           <option value="ranch">RANCH</option>
         </select>
         <input type="number" id="adminPercentInput" min="0" max="100" value="50">
@@ -931,6 +941,18 @@ if(doubleBossToggle){
     }
   });
 }
+let noMoreMisterNiceGuy = false;
+const niceGuyToggle = document.getElementById('niceGuyToggle');
+if(niceGuyToggle){
+  niceGuyToggle.addEventListener('change', () => {
+    noMoreMisterNiceGuy = niceGuyToggle.checked;
+  });
+}
+// applied at every burst-attack's core bullet count — see projMult() calls throughout the spawn functions
+function projMult(n){
+  return Math.max(1, Math.round(n * (noMoreMisterNiceGuy ? 3 : 1)));
+}
+
 
 // the DRIP slider itself still does absolutely nothing when dragged — YL SAFE
 // MODE (hidden by default) only appears once "43" is manually typed into the
@@ -1018,6 +1040,7 @@ const boss = {
   leaves: [],  // {ox, oy, r} — carrot
   shreds: [],  // {ox, oy, len, rot, color} — coleslaw
   ranchDrips: [], // {ox, phase, speed, len} — ranch
+  seeds: [],      // {ox, oy, rot} — watermelon
   phase: 1,
 };
 
@@ -1155,6 +1178,21 @@ function buildRanch(){
   }
 }
 
+// build watermelon shape: round striped rind with a bitten wedge of flesh
+function buildWatermelon(){
+  boss.seeds = [];
+  const n = 11;
+  for(let i=0; i<n; i++){
+    const angle = -0.5 + Math.random()*1.0; // scattered within the flesh wedge
+    const dist = 14 + Math.random()*36;
+    boss.seeds.push({
+      ox: Math.cos(angle)*dist,
+      oy: Math.sin(angle)*dist,
+      rot: Math.random()*Math.PI*2
+    });
+  }
+}
+
 // ---------- boss wandering — slowly drifts to a new spot every few seconds ----------
 const bossWander = { targetX: boss.x, targetY: boss.y, timer: 0 };
 const boss2 = { x: W/2, y: H/2 }; // second boss body — only moved/drawn/attacked when YOUWANTTODIEAH is on
@@ -1209,6 +1247,12 @@ const COLESLAW_COLUMN_DEFS = [
   { atT: 0.15, x: W*0.15, y: H*0.15, w: W*0.08, h: H*0.26 },
   { atT: 0.35, x: W*0.78, y: H*0.58, w: W*0.08, h: H*0.28 },
   { atT: 0.6,  x: W*0.45, y: H*0.10, w: W*0.08, h: H*0.24 },
+];
+const WATERMELON_COLUMN_DEFS = [
+  { atT: 0.12, x: W*0.16, y: H*0.55, w: W*0.08, h: H*0.27 },
+  { atT: 0.28, x: W*0.76, y: H*0.14, w: W*0.08, h: H*0.27 },
+  { atT: 0.45, x: W*0.45, y: H*0.58, w: W*0.08, h: H*0.25 },
+  { atT: 0.62, x: W*0.22, y: H*0.12, w: W*0.08, h: H*0.24 },
 ];
 const RANCH_COLUMN_DEFS = [
   { atT: 0.05, x: W*0.15, y: H*0.60, w: W*0.08, h: H*0.28 },
@@ -1342,6 +1386,7 @@ function drawCorners(){
 let bullets = []; // {x,y,vx,vy,r,color,type}
 
 function spawnRing(n, speed, color, originX, originY){
+  n = projMult(n);
   const ox = originX ?? boss.x, oy = originY ?? boss.y;
   for(let i=0;i<n;i++){
     const a = (i/n) * Math.PI*2;
@@ -1351,6 +1396,7 @@ function spawnRing(n, speed, color, originX, originY){
 // a rotating facing direction the boss "aims" with — deterministic, never tracks the player
 let bossFacing = -Math.PI/2;
 function spawnAimedSpread(n, speed, color){
+  n = projMult(n);
   bossFacing += 1.05; // step to a new fixed direction each time, regardless of where the player is
   const base = bossFacing;
   for(let i=0;i<n;i++){
@@ -1374,7 +1420,7 @@ function spawnSweepWall(color, gapIndex){
 }
 function spawnSpiral(color, speedMult){
   // three curling arms, staggered so they read as spinning outward rather than an instant ring
-  const arms = 3, perArm = 3;
+  const arms = 3, perArm = projMult(3);
   for(let a=0; a<arms; a++){
     for(let i=0; i<perArm; i++){
       setTimeout(() => {
@@ -1389,7 +1435,7 @@ function spawnSpiral(color, speedMult){
 function spawnCross(color, speedMult){
   // four lines bursting N/E/S/W simultaneously
   const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-  const perLine = 7;
+  const perLine = projMult(7);
   dirs.forEach(([dx,dy]) => {
     for(let i=1; i<=perLine; i++){
       bullets.push({
@@ -1406,7 +1452,8 @@ function spawnJab(color, speedMult, originX, originY){
   const ox = originX ?? boss.x, oy = originY ?? boss.y; // captured now, not re-read later — matters when two bosses are active
   bossFacing += 0.8;
   const base = bossFacing;
-  for(let i=0; i<3; i++){
+  const punches = projMult(3);
+  for(let i=0; i<punches; i++){
     setTimeout(() => {
       if(!running) return;
       bullets.push({
@@ -1419,7 +1466,7 @@ function spawnJab(color, speedMult, originX, originY){
 }
 function spawnKick(color, speedMult){
   // a fast, wide roundhouse arc — more bullets, more speed than broccoli's aim
-  const n = 14;
+  const n = projMult(14);
   bossFacing += 1.3;
   const base = bossFacing;
   const spread = Math.PI * 0.85;
@@ -1435,7 +1482,7 @@ function spawnKick(color, speedMult){
 function spawnNunchaku(color, speedMult, originX, originY){
   // two counter-rotating spiral arms — denser and faster than broccoli's spiral
   const ox = originX ?? boss.x, oy = originY ?? boss.y;
-  const perArm = 5;
+  const perArm = projMult(5);
   for(let i=0; i<perArm; i++){
     setTimeout(() => {
       if(!running) return;
@@ -1450,7 +1497,7 @@ function spawnNunchaku(color, speedMult, originX, originY){
 function spawnChiBlast(color, speedMult, originX, originY){
   // the "ultimate" — a huge dense ring, faster than broccoli's ring ever gets
   const ox = originX ?? boss.x, oy = originY ?? boss.y;
-  const n = 22;
+  const n = projMult(22);
   for(let i=0; i<n; i++){
     const a = (i/n) * Math.PI*2;
     bullets.push({x:ox, y:oy, vx:Math.cos(a)*3.6*speedMult, vy:Math.sin(a)*3.6*speedMult, r:9, color});
@@ -1498,7 +1545,7 @@ const FRY_TELEGRAPH = 500;
 const FRY_ACTIVE = 340;
 const FRY_WIDTH = 24;
 function spawnFryBlaster(color){
-  const count = 1 + Math.floor(Math.random()*2); // 1-2 cannons at once
+  const count = projMult(1 + Math.floor(Math.random()*2)); // 1-2 cannons at once, normally
   const margin = 160;
   for(let i=0; i<count; i++){
     const x = margin + Math.random()*(W-margin*2);
@@ -1676,7 +1723,7 @@ function spawnMayoDrizzle(color){
   // an uneven drizzle, not a neat row — each drop has its own random size,
   // fall speed, x position, and start delay, so it never falls in sync.
   // each one gets a small downward arrow marker right before it starts falling.
-  const count = 9;
+  const count = projMult(9);
   for(let i=0; i<count; i++){
     const delay = Math.random() * 550;
     const x = 70 + Math.random() * (W - 140);
@@ -1899,7 +1946,7 @@ function spawnSplatterBurst(x, y, color, speedMult){
   }
 }
 function spawnSplatterBombs(color, speedMult){
-  const count = 2 + (Math.random() < 0.5 ? 1 : 0); // 2-3 bombs at once
+  const count = projMult(2 + (Math.random() < 0.5 ? 1 : 0)); // 2-3 bombs at once, normally
   const margin = 160;
   for(let n=0; n<count; n++){
     const x = margin + Math.random()*(W-margin*2);
@@ -1913,8 +1960,9 @@ function spawnSplatterBombs(color, speedMult){
 // one safe lane) — new attack shapes, not reused from anything else ----------
 function spawnOverflow(color, speedMult){
   const margin = 140;
+  const perWave = projMult(4);
   const fireWave = () => {
-    for(let n=0; n<4; n++){
+    for(let n=0; n<perWave; n++){
       const x = margin + Math.random()*(W-margin*2);
       const y = margin + Math.random()*(H-margin*2);
       queueSplatter({ x, y, radius: 50, color, spawn: () => spawnSplatterBurst(x, y, color, speedMult*1.15) });
@@ -1938,6 +1986,233 @@ function spawnPincer(color, speedMult){
       bullets.push({x:W+24, y, vx:-3.6*speedMult, vy:0, r:13, color, rect:true, w:24, h:gap*0.85});
     }
   }, MARKER_TELEGRAPH_TIME);
+}
+
+// ---------- watermelon's real moveset — a complete rework. instead of a
+// passive stream, it now has genuine signature moves, telegraphed like every
+// other boss's, but built around mechanics nothing else in the game does:
+// a sweeping lightsaber-style slice, an orbiting barrier ring with a moving
+// gap, and a full-screen expanding shockwave that can only be survived by
+// dashing through it. tuned to sit between coleslaw and ranch in difficulty. ----------
+
+// KATANA — a glowing blade telegraphs a starting angle, then sweeps through
+// a wide arc fast. bright white core + colored glow, genuinely reads like a
+// lightsaber slice. the only attack in the game whose danger-line rotates
+// continuously through its active phase instead of staying fixed.
+let katanaSlices = [];
+const KATANA_TELEGRAPH = 960; // doubled from 480
+const KATANA_SWEEP_TIME = 620;
+const KATANA_WIDTH = 22;
+function spawnKatana(color, entity){
+  const startAngle = Math.random() * Math.PI * 2;
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const sweepAmount = dir * (Math.PI*0.85 + Math.random()*0.5); // 150°-240°-ish sweep
+  katanaSlices.push({
+    x: entity.x, y: entity.y, startAngle, sweepAmount,
+    phase: 'telegraph', timer: KATANA_TELEGRAPH, telegraphMax: KATANA_TELEGRAPH,
+    sweepTimer: KATANA_SWEEP_TIME, sweepMax: KATANA_SWEEP_TIME, color
+  });
+}
+function updateKatanaSlices(dt){
+  katanaSlices.forEach(k => {
+    if(k.phase === 'telegraph'){
+      k.timer -= dt;
+      if(k.timer <= 0){ k.phase = 'sweep'; triggerShake(12); }
+    } else {
+      k.sweepTimer -= dt;
+    }
+  });
+  katanaSlices = katanaSlices.filter(k => k.phase === 'telegraph' || k.sweepTimer > 0);
+
+  if(player.invuln <= 0 && !player.dashing && player.dashGrace <= 0){
+    for(const k of katanaSlices){
+      if(k.phase !== 'sweep') continue;
+      const progress = 1 - k.sweepTimer / k.sweepMax;
+      const angle = k.startAngle + k.sweepAmount * progress;
+      const dx = player.x - k.x, dy = player.y - k.y;
+      const perp = Math.abs(dx*Math.sin(angle) - dy*Math.cos(angle));
+      if(perp < KATANA_WIDTH/2 + player.r - 6){ playerHit(); break; }
+    }
+  }
+}
+function drawKatanaSlices(){
+  const reach = Math.hypot(W, H);
+  katanaSlices.forEach(k => {
+    ctx.save();
+    ctx.translate(k.x, k.y);
+    if(k.phase === 'telegraph'){
+      const punch = 1 - k.timer / k.telegraphMax;
+      ctx.rotate(k.startAngle);
+      ctx.strokeStyle = k.color;
+      ctx.globalAlpha = 0.25 + punch*0.5;
+      ctx.lineWidth = 4 + punch*4;
+      ctx.shadowColor = k.color; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.moveTo(-reach,0); ctx.lineTo(reach,0); ctx.stroke();
+    } else {
+      const progress = 1 - k.sweepTimer / k.sweepMax;
+      const angle = k.startAngle + k.sweepAmount * progress;
+      ctx.rotate(angle);
+      // outer glow
+      ctx.strokeStyle = k.color;
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = KATANA_WIDTH;
+      ctx.shadowColor = k.color; ctx.shadowBlur = 28;
+      ctx.beginPath(); ctx.moveTo(-reach,0); ctx.lineTo(reach,0); ctx.stroke();
+      // white-hot core, like a real blade
+      ctx.strokeStyle = '#ffffff';
+      ctx.globalAlpha = 0.95;
+      ctx.lineWidth = KATANA_WIDTH*0.35;
+      ctx.shadowBlur = 8;
+      ctx.beginPath(); ctx.moveTo(-reach,0); ctx.lineTo(reach,0); ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+// RIND SHIELD — a ring of solid rind chunks orbits the boss for several
+// seconds with exactly one rotating gap. you have to track the gap and move
+// with it to stay safe, rather than just dodging a one-off burst.
+let rindShields = [];
+const SHIELD_DURATION = 3400;
+const SHIELD_RADIUS = 110;
+const SHIELD_SEGMENTS = 10;
+function spawnRindShield(color, entity){
+  rindShields.push({
+    entity, angle: 0, spin: (Math.random() < 0.5 ? 1 : -1) * 0.0026,
+    timer: SHIELD_DURATION, gapIndex: Math.floor(Math.random()*SHIELD_SEGMENTS), color
+  });
+}
+function updateRindShields(dt){
+  rindShields.forEach(s => { s.angle += s.spin*dt; s.timer -= dt; });
+  rindShields = rindShields.filter(s => s.timer > 0);
+  if(player.invuln <= 0 && !player.dashing && player.dashGrace <= 0){
+    for(const s of rindShields){
+      for(let i=0; i<SHIELD_SEGMENTS; i++){
+        if(i === s.gapIndex) continue;
+        const a = s.angle + (i/SHIELD_SEGMENTS)*Math.PI*2;
+        const sx = s.entity.x + Math.cos(a)*SHIELD_RADIUS, sy = s.entity.y + Math.sin(a)*SHIELD_RADIUS;
+        if(Math.hypot(player.x-sx, player.y-sy) < 20 + player.r - 4){ playerHit(); return; }
+      }
+    }
+  }
+}
+function drawRindShields(){
+  rindShields.forEach(s => {
+    for(let i=0; i<SHIELD_SEGMENTS; i++){
+      if(i === s.gapIndex) continue;
+      const a = s.angle + (i/SHIELD_SEGMENTS)*Math.PI*2;
+      const sx = s.entity.x + Math.cos(a)*SHIELD_RADIUS, sy = s.entity.y + Math.sin(a)*SHIELD_RADIUS;
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(a);
+      ctx.fillStyle = s.color;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = s.color; ctx.shadowBlur = 8;
+      ctx.fillRect(-13, -9, 26, 18);
+      ctx.strokeRect(-13, -9, 26, 18);
+      ctx.restore();
+    }
+  });
+}
+
+// JUICE FLOOD — a full-screen expanding ring. movement alone cannot outrun
+// it once it's live — the only way through is dashing at the right moment.
+// the one attack in the game that forces mandatory dash usage.
+let juiceFloods = [];
+const FLOOD_TELEGRAPH = 700;
+const FLOOD_EXPAND_TIME = 1654; // half speed again on top of the previous 75% slowdown (827 * 2)
+function spawnJuiceFlood(color, entity){
+  juiceFloods.push({
+    x: entity.x, y: entity.y, phase: 'telegraph',
+    timer: FLOOD_TELEGRAPH, telegraphMax: FLOOD_TELEGRAPH,
+    expandTimer: FLOOD_EXPAND_TIME, expandMax: FLOOD_EXPAND_TIME, color
+  });
+}
+function updateJuiceFloods(dt){
+  juiceFloods.forEach(f => {
+    if(f.phase === 'telegraph'){
+      f.timer -= dt;
+      if(f.timer <= 0){ f.phase = 'expand'; triggerShake(20); }
+    } else {
+      f.expandTimer -= dt;
+    }
+  });
+  juiceFloods = juiceFloods.filter(f => f.phase === 'telegraph' || f.expandTimer > 0);
+  if(player.invuln <= 0 && !player.dashing && player.dashGrace <= 0){
+    for(const f of juiceFloods){
+      if(f.phase !== 'expand') continue;
+      const progress = 1 - f.expandTimer / f.expandMax;
+      const radius = progress * Math.hypot(W, H);
+      if(Math.abs(Math.hypot(player.x-f.x, player.y-f.y) - radius) < 26){ playerHit(); break; }
+    }
+  }
+}
+function drawJuiceFloods(){
+  juiceFloods.forEach(f => {
+    ctx.save();
+    if(f.phase === 'telegraph'){
+      const punch = 1 - f.timer / f.telegraphMax;
+      ctx.strokeStyle = f.color;
+      ctx.globalAlpha = 0.2 + punch*0.5;
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.arc(f.x, f.y, 60, 0, Math.PI*2); ctx.stroke();
+    } else {
+      const progress = 1 - f.expandTimer / f.expandMax;
+      const radius = progress * Math.hypot(W, H);
+      ctx.strokeStyle = f.color;
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 34;
+      ctx.shadowColor = f.color; ctx.shadowBlur = 22;
+      ctx.beginPath(); ctx.arc(f.x, f.y, radius, 0, Math.PI*2); ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+// SMASH — a ring of tumbling rectangular rind/flesh chunks. kept from the
+// old kit, now a normal triggered move instead of running on its own clock.
+function spawnMelonChunks(color, speedMult, entity){
+  const n = projMult(10);
+  const speed = 2.8 * speedMult;
+  for(let i=0; i<n; i++){
+    const a = (i/n)*Math.PI*2 + Math.random()*0.15;
+    const size = 14 + Math.random()*10;
+    const isFlesh = Math.random() < 0.5;
+    bullets.push({
+      x: entity.x, y: entity.y,
+      vx: Math.cos(a)*speed, vy: Math.sin(a)*speed,
+      rect: true, w: size, h: size*0.6, angle: a,
+      color: isFlesh ? '#ff5c7a' : '#2f8f3f'
+    });
+  }
+}
+
+// CROSSFIRE — the old constant stream, now a short discrete burst: fires
+// from two random screen sides for under a second, then stops completely.
+function pickTwoSides(){
+  const all = ['top', 'bottom', 'left', 'right'];
+  const a = all[Math.floor(Math.random()*all.length)];
+  let b = a;
+  while(b === a) b = all[Math.floor(Math.random()*all.length)];
+  return [a, b];
+}
+function fireFromSide(side, speed, color){
+  if(side === 'top') bullets.push({x: Math.random()*W, y: -10, vx: 0, vy: speed, r:5, color});
+  else if(side === 'bottom') bullets.push({x: Math.random()*W, y: H+10, vx: 0, vy: -speed, r:5, color});
+  else if(side === 'left') bullets.push({x: -10, y: Math.random()*H, vx: speed, vy: 0, r:5, color});
+  else if(side === 'right') bullets.push({x: W+10, y: Math.random()*H, vx: -speed, vy: 0, r:5, color});
+}
+function spawnCrossfireBurst(color, speedMult){
+  const sides = pickTwoSides();
+  const ticks = 7, interval = 90;
+  for(let i=0; i<ticks; i++){
+    setTimeout(() => {
+      if(!running) return;
+      const speed = 4.6 * speedMult;
+      sides.forEach(side => fireFromSide(side, speed, color));
+    }, i*interval);
+  }
 }
 
 // ---------- passive drip — ranch's cosmetic drips become a real hazard.
@@ -1970,7 +2245,7 @@ function randomEdgePoint(){
   return {x: W-margin, y: Math.random()*H, angle: Math.PI};                    // right edge, fires left
 }
 function spawnEdgeBarrage(color, speedMult, points){
-  const n = 5, spread = 0.55;
+  const n = projMult(5), spread = 0.55; // per-spot bullet count only — spot count stays fixed so telegraph markers still match up
   const spots = points || [randomEdgePoint(), randomEdgePoint(), randomEdgePoint()];
   spots.forEach(spot => {
     for(let i=0; i<n; i++){
@@ -2024,6 +2299,18 @@ const COLESLAW_PATTERN_SEQUENCE = [
   'fryblaster','splatter','tossup','chiblast','drizzle','fryblaster','fastbeam','tossup','splatter','bowltoss',
   'fryblaster','chiblast','tossup','fastbeam','drizzle','fryblaster','tossup','splatter','chiblast','bowltoss'
 ];
+// watermelon's routine — a complete rework built around three genuinely new
+// mechanics: katana (a rotating lightsaber-style sweep), rind shield (an
+// orbiting barrier with one moving gap, held for several seconds), and
+// juice flood (a full-screen expanding ring that forces a mandatory dash).
+// smash and crossfire round it out as shorter, punchier filler moves.
+// tuned to land squarely between coleslaw and ranch in raw difficulty.
+const WATERMELON_PATTERN_SEQUENCE = [
+  'crossfire','smash','katana','crossfire','rindshield','smash','crossfire','juiceflood','katana','crossfire',
+  'smash','rindshield','crossfire','katana','juiceflood','crossfire','smash','katana','rindshield','crossfire',
+  'juiceflood','smash','crossfire','katana','crossfire','rindshield','juiceflood','smash','katana','crossfire',
+  'rindshield','katana','crossfire','juiceflood','smash','crossfire','katana','rindshield','crossfire','juiceflood'
+];
 // ranch's routine — pure bullet hell. built specifically for players who
 // cleared coleslaw (even in YOUWANTTODIEAH) and got comfortable. no opener,
 // no easy moves at all, and now leans hard on its two exclusive moves —
@@ -2067,6 +2354,12 @@ const BOSS_PROFILES = {
     speedRange: [1.65, 3.2], offBeatRange: [0.45, 1.0], doubleEdges: [0.1, 0.75],
     colorFrom: '#f2f0e6', colorTo: '#8a2be2', rootFreq: 174.61, // F3
     sequence: COLESLAW_PATTERN_SEQUENCE, columnDefs: COLESLAW_COLUMN_DEFS,
+  },
+  watermelon: {
+    name: 'WATERMELON', maxHp: 200, drain: 200/72, wanderSpeed: 125,
+    speedRange: [1.9, 3.4], offBeatRange: [0.5, 1.0], doubleEdges: [0.1, 0.6],
+    colorFrom: '#3fae4a', colorTo: '#ff2d55', rootFreq: 164.81, // E3 — between coleslaw and ranch
+    sequence: WATERMELON_PATTERN_SEQUENCE, columnDefs: WATERMELON_COLUMN_DEFS,
   },
   ranch: {
     name: 'RANCH', maxHp: 260, drain: 260/68, wanderSpeed: 152,
@@ -2238,6 +2531,16 @@ function triggerPattern(diff, entity){
     spawnOverflow(color, speedMult);
   } else if(p === 'pincer'){
     spawnPincer(color, speedMult);
+  } else if(p === 'katana'){
+    spawnKatana(color, entity);
+  } else if(p === 'rindshield'){
+    spawnRindShield(color, entity);
+  } else if(p === 'juiceflood'){
+    spawnJuiceFlood(color, entity);
+  } else if(p === 'smash'){
+    spawnMelonChunks(color, speedMult, entity);
+  } else if(p === 'crossfire'){
+    spawnCrossfireBurst(color, speedMult);
   }
 }
 
@@ -2428,6 +2731,9 @@ function endGame(victory){
   ringTelegraphs = [];
   wedgeTelegraphs = [];
   markerTelegraphs = [];
+  katanaSlices = [];
+  rindShields = [];
+  juiceFloods = [];
   const elapsedS = ((performance.now() - fightStartTime) / 1000).toFixed(1);
   const rank = calcRank(victory, fightStartedFromCheckpoint, hitsTaken);
   const bestRank = updateBestRank(currentBossId, rank);
@@ -2477,6 +2783,7 @@ function drawBoss(t){
   const drawFn = currentBossId === 'carrot' ? drawCarrotBoss
     : currentBossId === 'coleslaw' ? drawColeslawBoss
     : currentBossId === 'ranch' ? drawRanchBoss
+    : currentBossId === 'watermelon' ? drawWatermelonBoss
     : drawBroccoliBoss;
   drawFn(t);
   if(youWantToDieAh){
@@ -2703,6 +3010,71 @@ function drawRanchBoss(t){
   ctx.stroke();
 }
 
+function drawWatermelonBoss(t){
+  const bob = Math.sin(t/260) * 5;
+  const by = boss.y + bob;
+  const danger = boss.hp/boss.maxHp < 0.35;
+
+  ctx.save();
+  ctx.translate(boss.x, by);
+  // rind body
+  ctx.fillStyle = danger ? '#1a4a1a' : '#2f8f3f';
+  ctx.strokeStyle = danger ? '#ff3b3b' : '#164a20';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 58, 50, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.stroke();
+  // stripes
+  ctx.save();
+  ctx.clip();
+  ctx.strokeStyle = danger ? '#0a2a0a' : '#1f6b2a';
+  ctx.lineWidth = 7;
+  for(let i=-2; i<=2; i++){
+    ctx.beginPath();
+    ctx.ellipse(i*15, 0, 9, 54, i*0.12, 0, Math.PI*2);
+    ctx.stroke();
+  }
+  ctx.restore();
+  // bitten wedge revealing the flesh — this is the minigun's "muzzle" side
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.arc(0, 0, 54, -0.55, 0.55);
+  ctx.closePath();
+  ctx.fillStyle = danger ? '#8a0000' : '#ff5c7a';
+  ctx.fill();
+  ctx.strokeStyle = danger ? '#ff3b3b' : '#c23c56';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+  // seeds scattered in the flesh
+  boss.seeds.forEach(s => {
+    ctx.save();
+    ctx.translate(s.ox, s.oy);
+    ctx.rotate(s.rot + t/2000);
+    ctx.fillStyle = '#1a1a12';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 3, 5.5, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  });
+  ctx.restore();
+
+  // angry eyes up top, on the rind
+  ctx.fillStyle = '#0a0a12';
+  ctx.beginPath();
+  ctx.arc(boss.x-16, by-34, 5, 0, Math.PI*2);
+  ctx.arc(boss.x+16, by-34, 5, 0, Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle = '#0a0a12';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(boss.x-26, by-46); ctx.lineTo(boss.x-10, by-39);
+  ctx.moveTo(boss.x+26, by-46); ctx.lineTo(boss.x+10, by-39);
+  ctx.stroke();
+}
+
 function polygon(r, sides){
   ctx.beginPath();
   for(let i=0;i<sides;i++){
@@ -2876,6 +3248,9 @@ function loop(t){
     updateWedgeTelegraphs(dt);
     updateMarkerTelegraphs(dt);
     updatePassiveDrip(dt);
+    updateKatanaSlices(dt);
+    updateRindShields(dt);
+    updateJuiceFloods(dt);
     updateBossAuto(dt);
   }
   updatePlayerFragments(frameDt); // keeps animating even after death/running stops, ignores hit-stop
@@ -2890,9 +3265,12 @@ function loop(t){
   drawRingTelegraphs();
   drawWedgeTelegraphs();
   drawMarkerTelegraphs();
+  drawRindShields();
+  drawJuiceFloods();
   drawBeams();
   drawBoss(t);
   drawBullets();
+  drawKatanaSlices();
   if(running) drawPlayer();
   drawDashSparks();
   drawPlayerFragments();
@@ -2920,9 +3298,13 @@ const BRIEFINGS = {
     title: 'COLESLAW',
     text: `BOSS FIGHT 03 — the hardest fight in the game, by a wide margin, but every single move gives some kind of warning first: rings and chi blasts get a pulsing ring outline that expands as it charges, bowl toss gets an outlined wedge showing its whole spread, mayo drizzle and edge barrages get small directional arrows before they fire, and french fry blaster cannons telegraph a straight line down their barrel. no easy opener at all though: it opens straight into french fry blaster cannons — they appear, telegraph, then fire one hard blast forward, never toward you specifically — and edge barrages, then layers in toss-up almost immediately: two flying-kick lunges back to back, so the boss's own body becomes a hazard twice in a row with barely any time to react between them. mayo drizzle rains uneven droplets of random size and speed that never fall in sync, and bowl toss goes the other way entirely — a handful of huge, slow chunks instead of many small ones. everything else — chi blasts, fast beam barrages, splatter bombs — comes faster and more often than either broccoli or carrot ever managed. 165 HP, the fastest wander speed of any boss, and three obstacle columns instead of one or two. same rules: nothing tracks you, checkpoint at 50%, 3 hits and you're done. good luck.`
   },
+  watermelon: {
+    title: 'WATERMELON',
+    text: `BOSS FIGHT 04 — completely reworked, built around three genuinely new mechanics no other boss uses. katana is a glowing blade that telegraphs a starting angle, then sweeps through a wide arc fast — a real lightsaber slice, bright white core with a colored glow, and the only danger-line in the game that keeps rotating while it's live instead of staying fixed. rind shield surrounds the boss with an orbiting ring of solid chunks that lasts several seconds, with exactly one gap rotating around it — you have to track and move with the gap to survive, not just dodge once and move on. juice flood is the big one: a full-screen ring that expands outward from the boss until it's covered the whole arena — movement alone cannot outrun it, the only way through is timing a dash right as it passes over you. smash and crossfire round out the kit as shorter, punchier filler between the big three. 200 HP, four obstacle columns, sitting right between coleslaw and ranch in raw difficulty, demanding a completely different skillset than either. same baseline rules — nothing tracks you, checkpoint at 50%, 3 hits and you're done.`
+  },
   ranch: {
     title: 'RANCH',
-    text: `BOSS FIGHT 04 — if you beat coleslaw, even in YOUWANTTODIEAH, and thought you were done: you weren't. this is pure bullet hell, built for exactly that complacency. a passive drip falls from the top of the screen for the ENTIRE fight, completely independent of every other attack, getting faster as HP drops — there is no lull, not even in the first second. its signature is full send: the only attack in the game that stacks several ultimates together at once — a flying lunge, a huge chi blast the instant it lands, and french fry cannons opening up elsewhere on the map, simultaneously. overflow doubles up splatter bombs into two waves almost on top of each other, and pincer closes walls in from both screen edges at once with only one safe lane between them. 260 HP, the fastest wander speed and fastest attack cadence in the game, and five obstacle columns closing the arena down faster than anything before it. same baseline rules — nothing tracks you, checkpoint at 50% — but don't expect that to feel like much of a mercy here. 3 hits and you're done. good luck. you're going to need it.`
+    text: `BOSS FIGHT 05 — if you beat coleslaw, even in YOUWANTTODIEAH, and thought you were done: you weren't. this is pure bullet hell, built for exactly that complacency. a passive drip falls from the top of the screen for the ENTIRE fight, completely independent of every other attack, getting faster as HP drops — there is no lull, not even in the first second. its signature is full send: the only attack in the game that stacks several ultimates together at once — a flying lunge, a huge chi blast the instant it lands, and french fry cannons opening up elsewhere on the map, simultaneously. overflow doubles up splatter bombs into two waves almost on top of each other, and pincer closes walls in from both screen edges at once with only one safe lane between them. 260 HP, the fastest wander speed and fastest attack cadence in the game, and five obstacle columns closing the arena down faster than anything before it. same baseline rules — nothing tracks you, checkpoint at 50% — but don't expect that to feel like much of a mercy here. 3 hits and you're done. good luck. you're going to need it.`
   }
 };
 document.querySelectorAll('.levelCard:not(.locked)').forEach(card => {
@@ -2966,9 +3348,13 @@ function startFight(fromCheckpoint){
   if(hpMarkerInit) hpMarkerInit.style.left = ((1 - boss.hp/boss.maxHp) * 100) + '%'; // avoid a one-frame flash at 100%
   if(currentBossId === 'carrot') buildCarrot();
   else if(currentBossId === 'coleslaw') buildColeslaw();
+  else if(currentBossId === 'watermelon') buildWatermelon();
   else if(currentBossId === 'ranch') buildRanch();
   else buildBroccoli();
   passiveDripTimer = 250; // ranch's passive drip starts almost immediately — "on your toes from 1% in"
+  katanaSlices = [];
+  rindShields = [];
+  juiceFloods = [];
   bossFacing = -Math.PI/2;
   lungeWarnings = [];
   lungeHazardTimer = 0;
