@@ -241,6 +241,10 @@
     border-color:#3fd7ff; color:#3fd7ff; font-size:13px; padding:10px 22px;
   }
   #startFromCheckpointBtn:hover{ background:#3fd7ff; color:#000; }
+  #watchReplayBtn{
+    border-color:#ff3b3b; color:#ff3b3b; font-size:13px; padding:10px 22px;
+  }
+  #watchReplayBtn:hover{ background:#ff3b3b; color:#000; }
   #mainMenu{
     position:absolute; inset:0; background:rgba(6,6,9,0.97);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -365,6 +369,7 @@
       <p id="briefText">BOSS FIGHT 01 — shapes & beats. move with WASD / arrows on PC, or just drag your finger on touch — the ship follows wherever you press. tap DASH / hit Spacebar to blink through hazards with full invincibility (half-second cooldown between dashes). watch for the highlighted zone — that's where the next hit lands. broccoli wanders the arena, one solid green column grows in partway through to block off part of the map, and the four corners are permanently cut off — no hiding in a pocket. patterns include rings, aimed spreads, floret drops, wall sweeps, spinning spirals, laser beams, and cross bursts — none of them track you, so it's all about reading and reacting. the lower its HP, the nastier it gets. there's a checkpoint at 50% HP — die after that and you resume from there instead of the top. 3 hits and you're steamed.</p>
       <button id="startBtn">START FIGHT</button>
       <button id="startFromCheckpointBtn" style="display:none;">START FROM CHECKPOINT</button>
+      <button id="watchReplayBtn" style="display:none;">WATCH REPLAY</button>
     </div>
     <div id="settingsPanel">
       <h2>SETTINGS</h2>
@@ -623,6 +628,12 @@ const DASH_DISTANCE = Math.min(W, H) / 5;
 const DASH_COOLDOWN = 500; // ms
 const DASH_GRACE = 220; // ms of extra i-frames right after the flash ends — covers the lunge hazard's full duration now
 let dashTrail = [];
+
+// ---------- death replay — records the player's recent path plus exactly
+// what hit them on the killing blow, so it can be watched back after dying ----------
+let deathTrail = [];
+const DEATH_TRAIL_CAP = 150; // ~2.5s of positions at 60fps
+let lastDeathReplay = null;
 
 // ---------- movement afterimages — faint ghost copies while dodging normally ----------
 let moveTrail = [];
@@ -1573,7 +1584,7 @@ function updateFryBlasters(dt){
       if(along < 0) continue; // it only fires forward out of the cannon, not backward
       const perp = Math.abs(dx*Math.sin(f.angle) - dy*Math.cos(f.angle));
       if(perp < FRY_WIDTH/2 + player.r - 6){
-        playerHit();
+        playerHit({x: f.x, y: f.y, color: f.color, shape: 'line', angle: f.angle});
         break;
       }
     }
@@ -1795,14 +1806,14 @@ function updateLungeWarnings(dt){
   if(lungeHazardTimer > 0){
     lungeHazardTimer -= dt;
     if(checkLungeHazard(boss.x, boss.y)){
-      playerHit();
+      playerHit({x: boss.x, y: boss.y, color: '#ff3b3b', shape: 'circle', size: LUNGE_HAZARD_RADIUS});
       lungeHazardTimer = 0;
     }
   }
   if(youWantToDieAh && lungeHazardTimer2 > 0){
     lungeHazardTimer2 -= dt;
     if(checkLungeHazard(boss2.x, boss2.y)){
-      playerHit();
+      playerHit({x: boss2.x, y: boss2.y, color: '#ff3b3b', shape: 'circle', size: LUNGE_HAZARD_RADIUS});
       lungeHazardTimer2 = 0;
     }
   }
@@ -1869,7 +1880,7 @@ function updateBeams(dt){
       const dx = player.x - b.ox, dy = player.y - b.oy;
       const perp = Math.abs(dx*Math.sin(b.angle) - dy*Math.cos(b.angle));
       if(perp < b.width/2 + player.r - 6){
-        playerHit();
+        playerHit({x: b.ox, y: b.oy, color: b.color, shape: 'line', angle: b.angle});
         break;
       }
     }
@@ -2031,7 +2042,10 @@ function updateKatanaSlices(dt){
       const angle = k.startAngle + k.sweepAmount * progress;
       const dx = player.x - k.x, dy = player.y - k.y;
       const perp = Math.abs(dx*Math.sin(angle) - dy*Math.cos(angle));
-      if(perp < KATANA_WIDTH/2 + player.r - 6){ playerHit(); break; }
+      if(perp < KATANA_WIDTH/2 + player.r - 6){
+        playerHit({x: k.x, y: k.y, color: k.color, shape: 'line', angle});
+        break;
+      }
     }
   }
 }
@@ -2091,7 +2105,10 @@ function updateRindShields(dt){
         if(i === s.gapIndex) continue;
         const a = s.angle + (i/SHIELD_SEGMENTS)*Math.PI*2;
         const sx = s.entity.x + Math.cos(a)*SHIELD_RADIUS, sy = s.entity.y + Math.sin(a)*SHIELD_RADIUS;
-        if(Math.hypot(player.x-sx, player.y-sy) < 20 + player.r - 4){ playerHit(); return; }
+        if(Math.hypot(player.x-sx, player.y-sy) < 20 + player.r - 4){
+          playerHit({x: sx, y: sy, color: s.color, shape: 'rect', size: 22, angle: a});
+          return;
+        }
       }
     }
   }
@@ -2144,7 +2161,10 @@ function updateJuiceFloods(dt){
       if(f.phase !== 'expand') continue;
       const progress = 1 - f.expandTimer / f.expandMax;
       const radius = progress * Math.hypot(W, H);
-      if(Math.abs(Math.hypot(player.x-f.x, player.y-f.y) - radius) < 26){ playerHit(); break; }
+      if(Math.abs(Math.hypot(player.x-f.x, player.y-f.y) - radius) < 26){
+        playerHit({x: f.x, y: f.y, color: f.color, shape: 'ring', size: radius});
+        break;
+      }
     }
   }
 }
@@ -2677,6 +2697,9 @@ function updatePlayer(dt){
   if(player.invuln > 0) player.invuln--;
   if(player.dashCooldown > 0) player.dashCooldown -= dt;
   if(player.dashGrace > 0) player.dashGrace -= dt;
+
+  deathTrail.push({x: player.x, y: player.y});
+  if(deathTrail.length > DEATH_TRAIL_CAP) deathTrail.shift();
 }
 
 function updateBullets(dt){
@@ -2691,14 +2714,14 @@ function updateBullets(dt){
       const rr = b.rect ? Math.max(b.w,b.h)/2 : b.r;
       const d = Math.hypot(b.x-player.x, b.y-player.y);
       if(d < rr + player.r - 6){
-        playerHit();
+        playerHit({x: b.x, y: b.y, color: b.color, shape: b.rect ? 'rect' : 'circle', size: rr, angle: b.angle || 0});
         break;
       }
     }
   }
 }
 
-function playerHit(){
+function playerHit(hitSource){
   const dmg = hardMode ? 2 : 1;
   const hitIndex = player.lives - 1;
   const hitIndex2 = dmg > 1 ? player.lives - 2 : undefined;
@@ -2717,6 +2740,12 @@ function playerHit(){
     spawnPlayerFragment(player.r * 1.7, true); // the last piece falls away entirely
     triggerShake(26);
     triggerHitStop(140);
+    lastDeathReplay = {
+      hitSource: hitSource || null,
+      playerX: player.x, playerY: player.y,
+      trail: deathTrail.slice(),
+      bossId: currentBossId
+    };
     endGame(false);
   }
 }
@@ -2764,6 +2793,8 @@ function endGame(victory){
     document.querySelector('#startScreen h1').textContent = victory ? winTitle : loseTitle;
     document.getElementById('startBtn').textContent = victory ? 'RUN IT BACK' : 'RETRY';
     updateStartButtons();
+    const replayBtn = document.getElementById('watchReplayBtn');
+    if(replayBtn) replayBtn.style.display = (!victory && lastDeathReplay) ? 'inline-block' : 'none';
   }, 1400);
 }
 
@@ -3203,10 +3234,110 @@ function drawBullets(){
   });
 }
 
+// ---------- death replay playback ----------
+let replayActive = false;
+let replayTimer = 0;
+const REPLAY_DURATION = 3200;
+function startReplay(){
+  if(!lastDeathReplay) return;
+  document.getElementById('startScreen').style.display = 'none';
+  replayActive = true;
+  replayTimer = REPLAY_DURATION;
+}
+function endReplay(){
+  replayActive = false;
+  document.getElementById('startScreen').style.display = 'flex';
+}
+const watchReplayBtn = document.getElementById('watchReplayBtn');
+if(watchReplayBtn) watchReplayBtn.addEventListener('click', startReplay);
+
+function drawDeathReplay(progress){
+  const r = lastDeathReplay;
+  if(!r) return;
+
+  // fading trail showing the player's path leading up to the hit
+  if(r.trail.length > 1){
+    ctx.save();
+    ctx.strokeStyle = safeMode ? '#3fa9ff' : '#6cff8f';
+    ctx.lineCap = 'round';
+    for(let i=1; i<r.trail.length; i++){
+      const a = r.trail[i-1], b = r.trail[i];
+      ctx.globalAlpha = (i/r.trail.length) * 0.6;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // exactly what hit you — highlighted and pulsing
+  if(r.hitSource){
+    const hs = r.hitSource;
+    const pulse = 0.7 + Math.sin(progress * Math.PI * 8) * 0.3;
+    ctx.save();
+    ctx.strokeStyle = hs.color || '#ff3b3b';
+    ctx.shadowColor = hs.color || '#ff3b3b';
+    ctx.shadowBlur = 22;
+    ctx.globalAlpha = 0.9;
+    if(hs.shape === 'line'){
+      const reach = Math.hypot(W, H);
+      ctx.lineWidth = 8 * pulse;
+      ctx.save();
+      ctx.translate(hs.x, hs.y);
+      ctx.rotate(hs.angle || 0);
+      ctx.beginPath(); ctx.moveTo(-reach,0); ctx.lineTo(reach,0); ctx.stroke();
+      ctx.restore();
+    } else if(hs.shape === 'ring'){
+      ctx.lineWidth = 8 * pulse;
+      ctx.beginPath(); ctx.arc(hs.x, hs.y, hs.size || 100, 0, Math.PI*2); ctx.stroke();
+    } else if(hs.shape === 'rect'){
+      ctx.save();
+      ctx.translate(hs.x, hs.y);
+      ctx.rotate(hs.angle || 0);
+      ctx.lineWidth = 3;
+      const s = (hs.size || 16) * pulse;
+      ctx.strokeRect(-s/2, -s/2, s, s);
+      ctx.restore();
+    } else {
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(hs.x, hs.y, (hs.size || 8) * pulse, 0, Math.PI*2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // the player's position right at the moment of the hit
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = safeMode ? '#3fa9ff' : '#6cff8f';
+  ctx.beginPath();
+  ctx.arc(r.playerX, r.playerY, player.r, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  // a red pulse marking the exact point of impact
+  const impactPulse = 0.5 + Math.sin(progress * Math.PI * 10) * 0.5;
+  ctx.save();
+  ctx.globalAlpha = 0.6 * impactPulse;
+  ctx.fillStyle = '#ff3b3b';
+  ctx.beginPath();
+  ctx.arc(r.playerX, r.playerY, 16 * impactPulse, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
 let last = performance.now();
 function loop(t){
   requestAnimationFrame(loop);
   const rawDt = t - last; last = t;
+
+  if(replayActive){
+    replayTimer -= rawDt;
+    ctx.clearRect(0,0,W,H);
+    drawGrid(t);
+    drawCorners();
+    drawDeathReplay(1 - replayTimer/REPLAY_DURATION);
+    if(replayTimer <= 0) endReplay();
+    return;
+  }
 
   // paused freezes everything — no updates at all, just keep rendering the frozen frame
   const frameDt = paused ? 0 : rawDt;
@@ -3321,6 +3452,8 @@ document.querySelectorAll('.levelCard:not(.locked)').forEach(card => {
     document.title = BOSS_PROFILES[level].name + ' // BOSS FIGHT';
     document.getElementById('startBtn').textContent = 'START FIGHT';
     updateStartButtons();
+    const replayBtn = document.getElementById('watchReplayBtn');
+    if(replayBtn) replayBtn.style.display = 'none'; // a previous boss's replay shouldn't show on a fresh level select
     document.getElementById('mainMenu').style.display = 'none';
     document.getElementById('startScreen').style.display = 'flex';
   });
@@ -3381,6 +3514,7 @@ function startFight(fromCheckpoint){
   playerFragments = [];
   moveTrail = []; moveTrailTimer = 0;
   dashSparks = [];
+  deathTrail = [];
   prevPlayerX = player.x; prevPlayerY = player.y;
   fingerActive = false;
   activePointerId = null;
