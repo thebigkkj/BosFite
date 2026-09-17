@@ -247,6 +247,17 @@
     padding:2px 7px;
   }
   .funBossCard:hover .levelNum{ color:#000; border-color:#000; }
+  .funBossCard.artCard{
+    border-color: transparent;
+    background:
+      linear-gradient(#0a0a12,#0a0a12) padding-box,
+      conic-gradient(from 0deg, #ff5ccb, #8a5cff, #5ccbff, #5cffb8, #ffe15c, #ff5ccb) border-box;
+    border-width: 2px; border-style: solid;
+  }
+  .funBossCard.artCard .levelNum{ color: #cbb0ff; border-color: #cbb0ff; }
+  .funBossCard.artCard:hover{ background: linear-gradient(#1a1a2a,#1a1a2a) padding-box,
+      conic-gradient(from 0deg, #ff5ccb, #8a5cff, #5ccbff, #5cffb8, #ffe15c, #ff5ccb) border-box; color: var(--white); }
+  .funBossCard.artCard:hover .levelNum{ color: #cbb0ff; border-color: #cbb0ff; }
   .levelCard{
     display:flex; align-items:center; gap:14px;
     padding:14px 18px; letter-spacing:2px; font-size:14px;
@@ -359,6 +370,14 @@
           <span class="levelNum">★</span>
           <span class="levelName">LEMON</span>
         </button>
+        <button class="funBossCard" data-level="broccoliprime">
+          <span class="levelNum">★</span>
+          <span class="levelName">BROCCOLI PRIME</span>
+        </button>
+        <button class="funBossCard artCard" data-level="prism">
+          <span class="levelNum">★</span>
+          <span class="levelName">PRISM</span>
+        </button>
       </div>
     </div>
     <div id="startScreen">
@@ -421,6 +440,8 @@
           <option value="ranch">RANCH</option>
           <option value="apple">APPLE</option>
           <option value="lemon">LEMON</option>
+          <option value="broccoliprime">BROCCOLI PRIME</option>
+          <option value="prism">PRISM</option>
         </select>
         <input type="number" id="adminPercentInput" min="0" max="100" value="50">
         <span>%</span>
@@ -1835,7 +1856,9 @@ const BEAM_ACTIVE = 480;    // ms the beam actually hurts
 const BEAM_WIDTH = 16;
 function spawnBeam(color, opts, originX, originY){
   opts = opts || {};
-  const angle = Math.random() * Math.PI * 2; // never tracks the player
+  // every caller except broccoli prime leaves angleOverride unset, so this
+  // stays "never tracks the player" everywhere else in the game
+  const angle = opts.angleOverride !== undefined ? opts.angleOverride : Math.random() * Math.PI * 2;
   const telegraphMax = opts.telegraph || BEAM_TELEGRAPH;
   beams.push({
     angle, ox: originX ?? boss.x, oy: originY ?? boss.y, // captured now, so it stays put even if the boss wanders after
@@ -2253,6 +2276,277 @@ function spawnEdgeBarrage(color, speedMult, points){
       bullets.push({x: spot.x, y: spot.y, vx: Math.cos(a)*4.0*speedMult, vy: Math.sin(a)*4.0*speedMult, r: 8, color});
     }
   });
+}
+
+// ---------- PRISM's moveset — designed to be beautiful first and a fight
+// second. every attack here is built from real generative-art math (radial
+// symmetry, a hypotrochoid/spirograph curve, phyllotaxis/golden-angle
+// spacing, a shifting gradient band) rendered in continuously cycling
+// rainbow hues, rather than the single fixed "danger color" every other
+// boss uses. ----------
+function hsl(h, s, l, a){
+  h = ((h % 360) + 360) % 360;
+  return a === undefined ? `hsl(${h},${s}%,${l}%)` : `hsla(${h},${s}%,${l}%,${a})`;
+}
+
+// MANDALA BLOOM — a symmetric, multi-ring kaleidoscope telegraph that
+// bursts into pellets following the exact same radial pattern it just
+// showed you.
+let mandalaBlooms = [];
+const MANDALA_TELEGRAPH = 850;
+const MANDALA_PETALS = 8;
+const MANDALA_RINGS = 3;
+function spawnMandalaBloom(entity){
+  mandalaBlooms.push({ x: entity.x, y: entity.y, timer: MANDALA_TELEGRAPH, telegraphMax: MANDALA_TELEGRAPH, hueBase: Math.random()*360 });
+}
+function updateMandalaBlooms(dt){
+  const ready = [];
+  mandalaBlooms.forEach(m => { m.timer -= dt; if(m.timer <= 0) ready.push(m); });
+  mandalaBlooms = mandalaBlooms.filter(m => m.timer > 0);
+  ready.forEach(m => {
+    for(let ring=0; ring<MANDALA_RINGS; ring++){
+      const petals = MANDALA_PETALS + ring*2;
+      const speed = 1.5 + ring*0.5;
+      const ringOffset = ring * (Math.PI / petals);
+      for(let i=0; i<petals; i++){
+        const a = (i/petals)*Math.PI*2 + ringOffset;
+        const hue = m.hueBase + ring*40 + i*(360/petals);
+        bullets.push({ x: m.x, y: m.y, vx: Math.cos(a)*speed, vy: Math.sin(a)*speed, r: 7, color: hsl(hue,85,60) });
+      }
+    }
+  });
+}
+function drawMandalaBlooms(){
+  mandalaBlooms.forEach(m => {
+    const punch = 1 - m.timer / m.telegraphMax;
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    ctx.rotate(punch * Math.PI * 0.5);
+    for(let ring=0; ring<MANDALA_RINGS; ring++){
+      const petals = MANDALA_PETALS + ring*2;
+      const radius = 28 + ring*24 + punch*22;
+      for(let i=0; i<petals; i++){
+        const a = (i/petals)*Math.PI*2 + ring*(Math.PI/petals);
+        const hue = m.hueBase + ring*40 + i*(360/petals);
+        ctx.save();
+        ctx.rotate(a);
+        ctx.translate(radius, 0);
+        ctx.fillStyle = hsl(hue, 85, 65, 0.22 + punch*0.5);
+        ctx.shadowColor = hsl(hue, 85, 65);
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 8 + punch*4, 4 + punch*2, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  });
+}
+
+// SPIROGRAPH TRAIL — a point traces a genuine hypotrochoid (the same curve
+// family a real spirograph toy draws) across the arena, leaving a glowing
+// rainbow trail. only the recent stretch of the trail is actually
+// dangerous — the pattern behind it is just the afterglow.
+let spirographs = [];
+const SPIRO_TELEGRAPH = 700;
+const SPIRO_DURATION = 3400;
+const SPIRO_RADIUS = 13;
+const SPIRO_TRAIL_LEN = 55;
+function spiroPoint(s, tParam){
+  const k = (s.R - s.r) / s.r;
+  return {
+    x: s.cx + (s.R-s.r)*Math.cos(tParam) + s.d*Math.cos(k*tParam),
+    y: s.cy + (s.R-s.r)*Math.sin(tParam) - s.d*Math.sin(k*tParam)
+  };
+}
+function spawnSpirograph(){
+  const R = 65 + Math.random()*45;
+  const r = 16 + Math.random()*26;
+  const d = 22 + Math.random()*32;
+  const maxReach = R + d + 24;
+  const cx = maxReach + Math.random()*Math.max(10, W - maxReach*2);
+  const cy = maxReach + Math.random()*Math.max(10, H - maxReach*2);
+  spirographs.push({
+    cx, cy, R, r, d, phase: 'telegraph', timer: SPIRO_TELEGRAPH, telegraphMax: SPIRO_TELEGRAPH,
+    travelTimer: SPIRO_DURATION, travelMax: SPIRO_DURATION, hueBase: Math.random()*360, trail: []
+  });
+}
+function updateSpirographs(dt){
+  spirographs.forEach(s => {
+    if(s.phase === 'telegraph'){
+      s.timer -= dt;
+      if(s.timer <= 0) s.phase = 'travel';
+    } else {
+      s.travelTimer -= dt;
+      const progress = 1 - s.travelTimer/s.travelMax;
+      const p = spiroPoint(s, progress * Math.PI * 8);
+      s.trail.push({ x: p.x, y: p.y, hue: s.hueBase + progress*720 });
+      if(s.trail.length > SPIRO_TRAIL_LEN) s.trail.shift();
+    }
+  });
+  spirographs = spirographs.filter(s => s.phase === 'telegraph' || s.travelTimer > 0);
+
+  if(player.invuln <= 0 && !player.dashing && player.dashGrace <= 0){
+    for(const s of spirographs){
+      if(s.phase !== 'travel') continue;
+      for(const p of s.trail){
+        if(Math.hypot(player.x-p.x, player.y-p.y) < SPIRO_RADIUS + player.r - 6){
+          playerHit({x: p.x, y: p.y, color: hsl(p.hue,85,60), shape: 'circle', size: SPIRO_RADIUS});
+          return;
+        }
+      }
+    }
+  }
+}
+function drawSpirographs(){
+  spirographs.forEach(s => {
+    if(s.phase === 'telegraph'){
+      const punch = 1 - s.timer/s.telegraphMax;
+      ctx.save();
+      ctx.strokeStyle = hsl(s.hueBase, 80, 65, 0.2+punch*0.5);
+      ctx.lineWidth = 2 + punch*2;
+      ctx.setLineDash([8,6]);
+      ctx.beginPath();
+      ctx.arc(s.cx, s.cy, 34 + punch*18, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      for(let i=1; i<s.trail.length; i++){
+        const a = s.trail[i-1], b = s.trail[i];
+        const alpha = i/s.trail.length;
+        ctx.strokeStyle = hsl(b.hue, 85, 62, 0.25 + alpha*0.6);
+        ctx.lineWidth = 6*alpha + 2;
+        ctx.shadowColor = hsl(b.hue, 85, 62);
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  });
+}
+
+// GOLDEN SPIRAL — pellets released one at a time spaced by the golden
+// angle (137.5°), the same spacing sunflower seed heads and pinecones
+// actually grow in. the result is a real phyllotaxis spiral, not an
+// approximation of one.
+const GOLDEN_ANGLE = 137.5 * Math.PI/180;
+function spawnGoldenSpiral(entity, speedMult){
+  const ox = entity.x, oy = entity.y;
+  const n = 24;
+  const hueBase = Math.random()*360;
+  for(let i=0; i<n; i++){
+    setTimeout(() => {
+      if(!running) return;
+      const a = i * GOLDEN_ANGLE;
+      const speed = (1.3 + i*0.065) * speedMult;
+      bullets.push({ x: ox, y: oy, vx: Math.cos(a)*speed, vy: Math.sin(a)*speed, r: 6, color: hsl(hueBase + i*12, 85, 60) });
+    }, i*35);
+  }
+}
+
+// AURORA SWEEP — a soft, wavy band of shifting gradient light sweeps
+// across the whole arena from one edge to the other.
+let auroras = [];
+const AURORA_TELEGRAPH = 1000;
+const AURORA_SWEEP_TIME = 2600;
+const AURORA_WIDTH = 130;
+function spawnAurora(){
+  const vertical = Math.random() < 0.5; // true: a vertical strip that sweeps left-right
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  auroras.push({ vertical, dir, phase: 'telegraph', timer: AURORA_TELEGRAPH, telegraphMax: AURORA_TELEGRAPH, sweepTimer: AURORA_SWEEP_TIME, sweepMax: AURORA_SWEEP_TIME, hueBase: Math.random()*360 });
+}
+function updateAuroras(dt){
+  auroras.forEach(a => {
+    if(a.phase === 'telegraph'){ a.timer -= dt; if(a.timer <= 0) a.phase = 'sweep'; }
+    else { a.sweepTimer -= dt; }
+  });
+  auroras = auroras.filter(a => a.phase === 'telegraph' || a.sweepTimer > 0);
+
+  if(player.invuln <= 0 && !player.dashing && player.dashGrace <= 0){
+    for(const a of auroras){
+      if(a.phase !== 'sweep') continue;
+      const progress = 1 - a.sweepTimer/a.sweepMax;
+      const axisLen = a.vertical ? W : H;
+      const centerPos = a.dir > 0 ? lerp(-AURORA_WIDTH, axisLen+AURORA_WIDTH, progress) : lerp(axisLen+AURORA_WIDTH, -AURORA_WIDTH, progress);
+      const playerAxisPos = a.vertical ? player.x : player.y;
+      const playerOtherPos = a.vertical ? player.y : player.x;
+      const wave = Math.sin(playerOtherPos/70 + progress*10) * 18;
+      if(Math.abs(playerAxisPos - (centerPos+wave)) < AURORA_WIDTH/2){
+        playerHit({x: player.x, y: player.y, color: hsl(a.hueBase,80,60), shape: 'rect', size: AURORA_WIDTH});
+        break;
+      }
+    }
+  }
+}
+function drawAuroras(){
+  auroras.forEach(a => {
+    ctx.save();
+    if(a.phase === 'telegraph'){
+      const punch = 1 - a.timer/a.telegraphMax;
+      ctx.strokeStyle = hsl(a.hueBase, 80, 60, 0.25+punch*0.5);
+      ctx.lineWidth = 3 + punch*3;
+      ctx.setLineDash([12,8]);
+      ctx.beginPath();
+      if(a.vertical){ ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); } else { ctx.moveTo(0,H/2); ctx.lineTo(W,H/2); }
+      ctx.stroke();
+    } else {
+      const progress = 1 - a.sweepTimer/a.sweepMax;
+      const axisLen = a.vertical ? W : H;
+      const centerPos = a.dir > 0 ? lerp(-AURORA_WIDTH, axisLen+AURORA_WIDTH, progress) : lerp(axisLen+AURORA_WIDTH, -AURORA_WIDTH, progress);
+      const steps = 36;
+      for(let i=0; i<steps; i++){
+        const otherPos = (i/steps) * (a.vertical ? H : W);
+        const wave = Math.sin(otherPos/70 + progress*10) * 18;
+        const pos = centerPos + wave;
+        const hue = a.hueBase + i*6 + progress*140;
+        ctx.fillStyle = hsl(hue, 85, 60, 0.45);
+        ctx.shadowColor = hsl(hue, 85, 60);
+        ctx.shadowBlur = 12;
+        if(a.vertical) ctx.fillRect(pos-AURORA_WIDTH/2, otherPos, AURORA_WIDTH, (H/steps)+2);
+        else ctx.fillRect(otherPos, pos-AURORA_WIDTH/2, (W/steps)+2, AURORA_WIDTH);
+      }
+    }
+    ctx.restore();
+  });
+}
+
+// ---------- BROCCOLI PRIME's moveset — a faithful recreation of the very
+// first prototype build of this game, before "nothing tracks you" became
+// the house rule for every other boss. these three moves are the
+// deliberate throwback exceptions: a spread that's aimed at wherever you
+// are the instant it fires, a beam that sometimes does the same, and true
+// homing seekers that gently curve toward you the whole way. ----------
+function spawnAimedSpreadPrime(n, speed, color, entity){
+  const ox = entity.x, oy = entity.y;
+  const dx = player.x-ox, dy = player.y-oy;
+  const base = Math.atan2(dy,dx);
+  for(let i=0;i<n;i++){
+    const a = base + (i-(n-1)/2)*0.22;
+    bullets.push({x:ox, y:oy+20, vx:Math.cos(a)*speed, vy:Math.sin(a)*speed, r:8, color});
+  }
+}
+function spawnHomingPrime(color, speedMult, entity){
+  const ox = entity.x, oy = entity.y;
+  const n = 3;
+  for(let i=0; i<n; i++){
+    const angle = Math.random()*Math.PI*2;
+    const speed = 1.0*speedMult;
+    bullets.push({
+      x: ox, y: oy+20,
+      vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
+      r: 10, color, homing: true, turn: 0.05
+    });
+  }
+}
+function spawnBeamPrime(color, entity, diff){
+  const aimed = diff.t > 0.55 && Math.random() < 0.6;
+  const angle = aimed ? Math.atan2(player.y - entity.y, player.x - entity.x) : undefined;
+  spawnBeam(color, angle !== undefined ? { angleOverride: angle } : undefined, entity.x, entity.y);
 }
 
 // ---------- APPLE's moveset — none of these are bullets. every hazard here
@@ -2801,6 +3095,25 @@ const PATTERN_SEQUENCE = [
   'spiral','cross','wall','beam','aim','cross','ring','beam','spiral','wall',
   'cross','beam','cross','wall','beam','spiral','ring','cross','cross','beam'
 ];
+// broccoli prime's routine — the exact original choreography from the very
+// first prototype build, unchanged, with its aimed spreads, aimed beams,
+// and homing seekers restored exactly as they were before every other
+// boss in the game switched to "nothing tracks you."
+const BROCCOLI_PRIME_PATTERN_SEQUENCE = [
+  'ring','primeaim','ring','primeaim','drop','ring','primeaim','drop','ring','wall',
+  'primeaim','drop','wall','ring','spiral','primeaim','drop','wall','ring','primebeam',
+  'spiral','primehoming','wall','primebeam','primeaim','cross','ring','primebeam','spiral','wall',
+  'primehoming','primebeam','cross','wall','primebeam','spiral','ring','primehoming','cross','primebeam'
+];
+// prism's routine — a gallery piece as much as a fight. every move is a
+// different generative-art technique (radial symmetry, a spirograph curve,
+// golden-angle phyllotaxis, a gradient sweep), rendered in continuously
+// cycling rainbow hues. paced gently on purpose — the point is to watch it
+// as much as dodge it.
+const PRISM_PATTERN_SEQUENCE = [
+  'mandala','spirograph','goldenspiral','aurora','mandala','goldenspiral','spirograph','aurora','mandala','goldenspiral',
+  'aurora','spirograph','goldenspiral','mandala','aurora','goldenspiral','spirograph','mandala'
+];
 // carrot's routine — no easy opener, heavier attacks from the start, and it
 // leans on the lunge (boss-as-hazard), chi blast (huge ring), splatter bombs,
 // fast beam barrages, and edge-spawned barrages far more
@@ -2921,6 +3234,18 @@ const BOSS_PROFILES = {
     speedRange: [1.3, 2.0], offBeatRange: [0.08, 0.22], doubleEdges: [0.85, 1.0],
     colorFrom: '#fff44f', colorTo: '#d4a017', rootFreq: 293.66, // D4 — a fun-boss gimmick fight built on unpredictability
     sequence: LEMON_PATTERN_SEQUENCE, columnDefs: [],
+  },
+  broccoliprime: {
+    name: 'BROCCOLI PRIME', maxHp: 100, drain: 100/85, wanderSpeed: 46,
+    speedRange: [1.15, 2.3], offBeatRange: [0.12, 0.97], doubleEdges: [0.42, 1.0],
+    colorFrom: '#6cff8f', colorTo: '#ff5c7a', rootFreq: 220.00, // A3 — the original build, restored exactly
+    sequence: BROCCOLI_PRIME_PATTERN_SEQUENCE, columnDefs: BROCCOLI_COLUMN_DEFS,
+  },
+  prism: {
+    name: 'PRISM', maxHp: 105, drain: 105/80, wanderSpeed: 50,
+    speedRange: [1.0, 1.55], offBeatRange: [0.05, 0.18], doubleEdges: [0.88, 1.0],
+    colorFrom: '#8a5cff', colorTo: '#ff5ccb', rootFreq: 261.63, // C4 — an art piece first, a fight second; gentle pacing on purpose
+    sequence: PRISM_PATTERN_SEQUENCE, columnDefs: [],
   },
 };
 
@@ -3116,6 +3441,20 @@ function triggerPattern(diff, entity){
     spawnDoubleFake(color, speedMult);
   } else if(p === 'liar'){
     spawnLiarStrike(color, speedMult, entity);
+  } else if(p === 'primeaim'){
+    spawnAimedSpreadPrime(5, 3.4*speedMult, color, entity);
+  } else if(p === 'primehoming'){
+    spawnHomingPrime(color, speedMult, entity);
+  } else if(p === 'primebeam'){
+    spawnBeamPrime(color, entity, diff);
+  } else if(p === 'mandala'){
+    spawnMandalaBloom(entity);
+  } else if(p === 'spirograph'){
+    spawnSpirograph();
+  } else if(p === 'goldenspiral'){
+    spawnGoldenSpiral(entity, speedMult);
+  } else if(p === 'aurora'){
+    spawnAurora();
   }
 }
 
@@ -3283,6 +3622,23 @@ function updateBullets(dt){
   bullets.forEach(b => {
     b.frame = (b.frame||0) + 1;
 
+    // HOMING — gently curves toward the player over time. this is the one
+    // deliberate exception to "nothing tracks you": only bullets from
+    // broccoli prime's seeker attack ever set this flag.
+    if(b.homing){
+      const dx = player.x - b.x, dy = player.y - b.y;
+      const desired = Math.atan2(dy, dx);
+      const cur = Math.atan2(b.vy, b.vx);
+      let diff = desired - cur;
+      while(diff > Math.PI) diff -= Math.PI*2;
+      while(diff < -Math.PI) diff += Math.PI*2;
+      const turn = Math.max(-b.turn, Math.min(b.turn, diff));
+      const speed = Math.hypot(b.vx, b.vy);
+      const newAngle = cur + turn;
+      b.vx = Math.cos(newAngle) * speed;
+      b.vy = Math.sin(newAngle) * speed;
+    }
+
     // CURVEBALL — some pellets suddenly break onto a new heading partway
     // through their flight. only bullets with curveAt set do this at all,
     // and it fires exactly once (twice, for the nastier ones with a second
@@ -3440,6 +3796,9 @@ function endGame(victory){
   gravityPulls = [];
   rotZones = [];
   polarityEvents = [];
+  mandalaBlooms = [];
+  spirographs = [];
+  auroras = [];
   const elapsedS = ((performance.now() - fightStartTime) / 1000).toFixed(1);
   const rank = calcRank(victory, fightStartedFromCheckpoint, hitsTaken);
   const bestRank = updateBestRank(currentBossId, rank);
@@ -3494,6 +3853,7 @@ function drawBoss(t){
     : currentBossId === 'watermelon' ? drawWatermelonBoss
     : currentBossId === 'apple' ? drawAppleBoss
     : currentBossId === 'lemon' ? drawLemonBoss
+    : currentBossId === 'prism' ? drawPrismBoss
     : drawBroccoliBoss;
   drawFn(t);
   if(youWantToDieAh){
@@ -3930,6 +4290,52 @@ function drawLemonBoss(t){
   ctx.stroke();
 }
 
+function drawPrismBoss(t){
+  const bob = Math.sin(t/320) * 4;
+  const by = boss.y + bob;
+  const rot = t/3000;
+  const sides = 6;
+  const R = 54;
+
+  ctx.save();
+  ctx.translate(boss.x, by);
+  ctx.rotate(rot);
+  for(let i=0; i<sides; i++){
+    const a0 = (i/sides)*Math.PI*2, a1 = ((i+1)/sides)*Math.PI*2;
+    const hue = (t/20 + i*(360/sides)) % 360;
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(Math.cos(a0)*R, Math.sin(a0)*R);
+    ctx.lineTo(Math.cos(a1)*R, Math.sin(a1)*R);
+    ctx.closePath();
+    ctx.fillStyle = hsl(hue, 80, 60, 0.85);
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // soft cycling outer glow — the "refracted light" halo
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.strokeStyle = hsl(t/20, 85, 65);
+  ctx.lineWidth = 4;
+  ctx.shadowColor = ctx.strokeStyle;
+  ctx.shadowBlur = 18;
+  ctx.beginPath();
+  ctx.arc(boss.x, by, 64, 0, Math.PI*2);
+  ctx.stroke();
+  ctx.restore();
+
+  // small, quiet eyes — still reads as a boss, not just a shape
+  ctx.fillStyle = '#0a0a12';
+  ctx.beginPath();
+  ctx.arc(boss.x-12, by-6, 4, 0, Math.PI*2);
+  ctx.arc(boss.x+12, by-6, 4, 0, Math.PI*2);
+  ctx.fill();
+}
+
 function polygon(r, sides){
   ctx.beginPath();
   for(let i=0;i<sides;i++){
@@ -4203,6 +4609,9 @@ function loop(t){
     updateGravityPulls(dt);
     updateRotZones(dt);
     updatePolarity(dt);
+    updateMandalaBlooms(dt);
+    updateSpirographs(dt);
+    updateAuroras(dt);
     updateBossAuto(dt);
   }
   updatePlayerFragments(frameDt); // keeps animating even after death/running stops, ignores hit-stop
@@ -4222,6 +4631,9 @@ function loop(t){
   drawRotZones();
   drawPolarity();
   drawGravityPulls();
+  drawAuroras();
+  drawSpirographs();
+  drawMandalaBlooms();
   drawBeams();
   drawBoss(t);
   drawBullets();
@@ -4269,6 +4681,14 @@ const BRIEFINGS = {
   lemon: {
     title: 'LEMON',
     text: `FUN BOSS — nothing here is scheduled, and its warnings can be outright lies. every pellet lemon throws is fully autonomous: from the second it leaves, it can snap onto a brand new heading, fork into two, or bounce off the arena edge instead of leaving — any of that, at any moment, entirely on its own, with no fixed timing at all. curveball spread, knuckleball, and splitter all fire these — the only real difference between them is the opening shape, not what the pellets do afterward. worse: liar throws up a real, solid-looking telegraph right at the boss, like it's about to attack from there — and then doesn't. the actual burst fires from somewhere else in the arena entirely, an edge or a corner, with zero visual connection to the warning you just watched. pump fake and double fake are still in the mix too — a telegraph that's a bluff close to half the time, sometimes two at once, anywhere on the map. respect every warning, watch every pellet the whole way, and don't expect either to behave the way it did a second ago. same baseline rules: checkpoint at 50% HP, 3 hits and you're juiced.`
+  },
+  broccoliprime: {
+    title: 'BROCCOLI PRIME',
+    text: `FUN BOSS — a straight recreation of the very first prototype build of this game, before every boss switched over to "nothing tracks you." it's broccoli, same HP, same single obstacle column, same choreography — but three of its moves are restored exactly as they originally were: its aimed spread genuinely aims at wherever you're standing the instant it fires, its beam sometimes does the same once the fight gets dangerous enough, and its seekers are true homing shots that gently curve toward you the whole way instead of flying a fixed line. everything else — rings, floret drops, wall sweeps, spirals, cross bursts — is untouched and still doesn't aim at you at all. a deliberate throwback, not a nerf or a buff. same baseline rules: checkpoint at 50% HP, 3 hits and you're steamed.`
+  },
+  prism: {
+    title: 'PRISM',
+    text: `FUN BOSS — an art piece you happen to have to dodge. every move is built from real generative-art math instead of the usual bullet shapes, rendered in continuously cycling rainbow hues rather than one fixed danger color. mandala bloom telegraphs a full symmetric kaleidoscope pattern, then bursts into pellets that fly out along that exact same radial design. spirograph traces a genuine hypotrochoid curve — the same family of curve a real spirograph toy draws — across the arena, leaving a glowing trail behind it; only the freshest stretch of the trail is actually dangerous. golden spiral releases pellets one at a time spaced by the golden angle, the same spacing a sunflower's seed head actually grows in, so it blooms outward as a real phyllotaxis spiral. aurora sweep sends a soft, wavy band of shifting gradient light drifting across the whole screen from one edge to the other. it's paced gently on purpose — HP and speed are both lower than the other fun bosses, because the point is to watch it as much as survive it. same baseline rules: checkpoint at 50% HP, 3 hits and the light goes out.`
   }
 };
 function selectBoss(level){
@@ -4339,6 +4759,7 @@ function startFight(fromCheckpoint){
   else if(currentBossId === 'ranch') buildRanch();
   else if(currentBossId === 'apple') buildApple();
   else if(currentBossId === 'lemon') buildLemon();
+  else if(currentBossId === 'prism'){ /* drawn procedurally from time alone — no per-fight shape data needed */ }
   else buildBroccoli();
   passiveDripTimer = 250; // ranch's passive drip starts almost immediately — "on your toes from 1% in"
   katanaSlices = [];
@@ -4348,6 +4769,9 @@ function startFight(fromCheckpoint){
   gravityPulls = [];
   rotZones = [];
   polarityEvents = [];
+  mandalaBlooms = [];
+  spirographs = [];
+  auroras = [];
   bossFacing = -Math.PI/2;
   lungeWarnings = [];
   lungeHazardTimer = 0;
